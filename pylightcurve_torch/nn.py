@@ -54,7 +54,6 @@ class TransitModule(nn.Module):
             except AssertionError:
                 raise ValueError("epoch_type should be one of: 'primary', 'secondary' ")
         self.epoch_type = epoch_type
-        self._pos_factor = float((self.epoch_type == 'primary') - (self.epoch_type == 'secondary'))
         self.precision = precision
 
         self.__shape = [None, None]
