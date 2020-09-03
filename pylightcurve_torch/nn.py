@@ -4,12 +4,13 @@ from typing import Any
 import torch
 from torch import nn
 
-from .constants import MAX_RATIO_RADII
+from .constants import MAX_RATIO_RADII, PLC_PARNAMES
 from .functional import exoplanet_orbit, transit_duration, transit_flux_drop
 
 
 class TransitModule(nn.Module):
     _parnames = {'method', 'P', 'i', 'e', 'a', 'rp', 'fp', 't0', 'w', 'ldc'}
+    _authorised_parnames = _parnames.union(PLC_PARNAMES)
     _methods_dim = {'linear': 1, 'sqrt': 2, 'quad': 2, 'claret': 4}
     _pars_of_fun = {'position': {'P', 'i', 'e', 'a', 't0', 'w'},
                     'duration': {'i', 'rp', 'P', 'a', 'i', 'e', 'w'},
@@ -174,7 +175,7 @@ class TransitModule(nn.Module):
         if not kwargs:
             warnings.warn('no parameter provided')
         for name, value in kwargs.items():
-            if name not in self._parnames:
+            if name not in self._authorised_parnames:
                 raise RuntimeError(f"parameter {name} not in authorized model's list")
 
             if name == "method":
