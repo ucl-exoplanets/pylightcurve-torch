@@ -74,7 +74,7 @@ def exoplanet_orbit(period, sma_over_rs, eccentricity, inclination, periastron, 
 def transit_projected_distance(period, sma_over_rs, eccentricity, inclination, periastron, mid_time, time_array):
     x, y, z = exoplanet_orbit(period, sma_over_rs, eccentricity, inclination, periastron, mid_time, time_array)
 
-    return torch.where(x < 0., torch.ones_like(x) * MAX_RATIO_RADII, torch.sqrt(y**2 + z**2))
+    return torch.where(x < 0., torch.ones_like(x) * MAX_RATIO_RADII, torch.sqrt(y ** 2 + z ** 2))
 
 
 def transit_duration(rp_over_rs, period, sma_over_rs, inclination, eccentricity, periastron, **kwargs):
@@ -367,7 +367,7 @@ def transit_flux_drop(method, limb_darkening_coefficients, rp_over_rs, z_over_rs
 def transit(method, limb_darkening_coefficients, rp_over_rs, period, sma_over_rs, eccentricity, inclination, periastron,
             mid_time, time_array, precision=3):
     x, y, z = exoplanet_orbit(period, sma_over_rs, eccentricity, inclination, periastron, mid_time, time_array)
-    projected_distance = torch.where(x < 0., MAX_RATIO_RADII, torch.sqrt(y**2 + z**2))
+    projected_distance = torch.where(x < 0., MAX_RATIO_RADII, torch.sqrt(y ** 2 + z ** 2))
 
     return transit_flux_drop(method, limb_darkening_coefficients, rp_over_rs, projected_distance, precision=precision)
 
@@ -376,11 +376,11 @@ def eclipse(fp_over_fs, rp_over_rs, period, sma_over_rs, eccentricity, inclinati
             precision=3):
     x, y, z = exoplanet_orbit(period, - sma_over_rs / rp_over_rs, eccentricity, inclination, periastron,
                               mid_time, time_array)
-    projected_distance = torch.where(x < 0, MAX_RATIO_RADII, y**2 + z**2)
+    projected_distance = torch.where(x < 0, MAX_RATIO_RADII, y ** 2 + z ** 2)
     n_pars = max(projected_distance.shape[0], fp_over_fs.shape[0] if isinstance(fp_over_fs, torch.Tensor) else 0)
 
     return (1. + fp_over_fs * transit_flux_drop('linear', torch.zeros(n_pars, 1), 1. / rp_over_rs,
-                                                 projected_distance, precision=precision)) / (1. + fp_over_fs)
+                                                projected_distance, precision=precision)) / (1. + fp_over_fs)
 
 
 def eclipse_centered(fp_over_fs, rp_over_rs, period, sma_over_rs, eccentricity, inclination, periastron, mid_time,

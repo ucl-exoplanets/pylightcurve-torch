@@ -1,7 +1,8 @@
 import warnings
+from typing import Any
+
 import torch
 from torch import nn
-from typing import Any
 
 from .constants import MAX_RATIO_RADII
 from .functional import exoplanet_orbit, transit_duration, transit_flux_drop
@@ -16,6 +17,21 @@ class TransitModule(nn.Module):
                     'drop_s': {'fp', 'rp'}}
 
     def __init__(self, time=None, primary=True, secondary=False, epoch_type='primary', precision=3, **kwargs):
+        """ Creates a pytorch transit model, inheriting torch.nn.Module
+
+        The model computes kepler positions, primary and secondary transits flux_drop drops for N different sets of
+         parameters and T time steps
+
+        :param time: array-like time series of time values. Shape: (T,), (1, T), (N, T)
+        :param primary: boolean indicating whether to compute the primary transit or not (type: bool ; default: True)
+        :param secondary: Whether to compute the secondary transit or not (type: bool ; default: False)
+        :param epoch_type: str indicating whether the t0 parameter refers to mid primary or secondary transit times.
+            It can take the str values 'primary' or 'secondary'. If the primary param is set to True, it will be
+            defaulted to 'primary', and otherwise to 'secondary'.
+        :param precision:  (type: int ; default: 3)
+        :param kwargs: additional optional parameters. If given these must be named like transit params
+        """
+        self.time = None
         super().__init__()
         self.time = None
         self.time_unit = None
@@ -58,7 +74,7 @@ class TransitModule(nn.Module):
                 + f"{'secondary, ' if self.secondary else ''}shape={self.shape})")
 
     @property
-    def pos_factor(self):
+    def _pos_factor(self):
         return float((self.epoch_type == 'primary') - (self.epoch_type == 'secondary'))
 
     @property
@@ -70,6 +86,10 @@ class TransitModule(nn.Module):
 
     @property
     def ldc_dim(self):
+        """ dimensionality of the limb-darkening coefs
+
+        :return: int between 1 and 4 (None if no method defined)
+        """
         if self.method is not None:
             return self._methods_dim[self.method]
 
@@ -175,11 +195,22 @@ class TransitModule(nn.Module):
                 param.requires_grad = False
 
     def clear_param(self, name):
+        """ Resets a param to None value
+
+        :param name: parameter name (str)
+        :return:
+        """
         setattr(self, name, None)
 
     def clear_params(self, *args):
+        """ Resets several parameters to None value
+
+        :param args: list of parameters names. If None is provided, all the parameters will be reset
+        :return:
+        """
         if not args:
             args = self._parnames
+            self.__shape[0] = None
         for name in args:
             self.clear_params(name)
 
@@ -229,7 +260,7 @@ class TransitModule(nn.Module):
                                   n_pars=self.shape[0])
         # if self.cache_position:
         #     self.__pos = out
-        return x * self.pos_factor, y * self.pos_factor, z * self.pos_factor
+        return x * self._pos_factor, y * self._pos_factor, z * self._pos_factor
 
     position = property(get_position)
 
@@ -325,4 +356,3 @@ class TransitModule(nn.Module):
         :return:
         """
         return self.get_flux_drop(**kwargs)
-
