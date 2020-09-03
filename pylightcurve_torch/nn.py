@@ -1,23 +1,24 @@
 import warnings
-from typing import Any
+from typing import Any, Optional, Union
 
 import torch
-from torch import nn
+from torch import nn, dtype, device
 
-from .constants import MAX_RATIO_RADII, PLC_PARNAMES
+from .constants import MAX_RATIO_RADII, PLC_ALIASES
 from .functional import exoplanet_orbit, transit_duration, transit_flux_drop
 
 
 class TransitModule(nn.Module):
     _parnames = {'method', 'P', 'i', 'e', 'a', 'rp', 'fp', 't0', 'w', 'ldc'}
-    _authorised_parnames = _parnames.union(PLC_PARNAMES)
+    _authorised_parnames = _parnames.union(set(PLC_ALIASES.keys()))
     _methods_dim = {'linear': 1, 'sqrt': 2, 'quad': 2, 'claret': 4}
     _pars_of_fun = {'position': {'P', 'i', 'e', 'a', 't0', 'w'},
                     'duration': {'i', 'rp', 'P', 'a', 'i', 'e', 'w'},
                     'drop_p': {'method', 'ldc', 'rp'},
                     'drop_s': {'fp', 'rp'}}
 
-    def __init__(self, time=None, primary=True, secondary=False, epoch_type=None, precision=3, **kwargs):
+    def __init__(self, time=None, primary=True, secondary=False, epoch_type=None, precision=3, dtype=torch.float64,
+                 **kwargs):
         """ Creates a pytorch transit model, inheriting torch.nn.Module
 
         The model computes kepler positions, primary and secondary transits flux_drop drops for N different sets of
@@ -30,6 +31,8 @@ class TransitModule(nn.Module):
             It can take the str values 'primary' or 'secondary'. If the primary param is set to True, it will be
             defaulted to 'primary', and otherwise to 'secondary'.
         :param precision:  (type: int ; default: 3)
+        :param dtype: tensors dtype (default: torch.float64) If None provided, the environment default torch dtype will
+            be used.
         :param kwargs: additional optional parameters. If given these must be named like transit params
         """
         self.time = None
@@ -56,10 +59,16 @@ class TransitModule(nn.Module):
                 raise ValueError("epoch_type should be one of: 'primary', 'secondary' ")
         self.precision = precision
 
-        self.__shape = [None, None]
+        if dtype is None:
+            self.dtype = torch.get_default_dtype()
+        else:
+            self.dtype = dtype
 
+        self.__shape = [None, None]
+        self.method = None
         for name in self._parnames:
-            setattr(self, name, None)
+            if name != 'method':
+                self.__setattr__(name, None)
         if kwargs:
             self.set_param(**kwargs)
 
@@ -98,7 +107,7 @@ class TransitModule(nn.Module):
         return self.rp
 
     @property
-    def fp_over_rs(self):
+    def fp_over_fs(self):
         """ Alias for 'fp' """
         return self.fp
 
@@ -108,7 +117,7 @@ class TransitModule(nn.Module):
         return self.i
 
     @property
-    def eccentricty(self):
+    def eccentricity(self):
         """ Alias for 'e' """
         return self.e
 
@@ -132,6 +141,16 @@ class TransitModule(nn.Module):
         """ Alias for 't0' """
         return self.t0
 
+    @property
+    def period(self):
+        """ Alias for 'P' """
+        return self.P
+
+    def __setattr__(self, key, value):
+        if key in PLC_ALIASES.keys():
+            key = PLC_ALIASES[key]
+        super().__setattr__(key, value)
+
     def set_time(self, time, time_unit=None):
         """ Sets the tensor of time values
 
@@ -144,8 +163,8 @@ class TransitModule(nn.Module):
         if time is None:
             raise ValueError("time musn't be None. For clearing the time array use clear_time method")
         if not isinstance(time, torch.Tensor):
-            time = torch.tensor(time, dtype=float)
-        self.time = time.detach()
+            time = torch.tensor(time)
+        self.time = time.detach().to(self.dtype)
         if len(self.time.shape) == 0:
             raise ValueError('time input must be a sized iterable object')
         if len(self.time.shape) == 1:
@@ -181,11 +200,11 @@ class TransitModule(nn.Module):
                 self.set_method(value)
                 continue
             if isinstance(value, nn.Parameter):
-                data = value.data
+                data = value.data.to(self.dtype)
             elif isinstance(value, torch.Tensor):
-                data = value
+                data = value.to(self.dtype)
             else:
-                data = torch.tensor(value)
+                data = torch.tensor(value, dtype=self.dtype)
 
             # reshaping
             dim = 1
@@ -209,9 +228,10 @@ class TransitModule(nn.Module):
 
             param = nn.Parameter(data, requires_grad=data.requires_grad)
             if getattr(self, name) is None:
-                setattr(self, name, param)
+                self.__setattr__(name, param)
             else:
                 getattr(self, name).data = param.data
+                getattr(self, name).requires_grad = data.requires_grad
 
     def fit_param(self, *args):
         for name in args:
@@ -297,8 +317,8 @@ class TransitModule(nn.Module):
         # if self.cache_position and self.__pos is not None and not {k for k in kwargs if k in self.parpos}:
         #     return self.__pos
         d = self.get_input_params(**kwargs, function='position')
-        x, y, z = exoplanet_orbit(d['P'], d['a'], d['e'], d['i'], d['w'], d['t0'], self.time, ww=torch.zeros(1, 1),
-                                  n_pars=self.shape[0])
+        x, y, z = exoplanet_orbit(d['P'], d['a'], d['e'], d['i'], d['w'], d['t0'], self.time,
+                                  ww=torch.zeros(1, 1, dtype=self.dtype), n_pars=self.shape[0], dtype=self.dtype)
         # if self.cache_position:
         #     self.__pos = out
         return x * self._pos_factor, y * self._pos_factor, z * self._pos_factor
@@ -311,9 +331,9 @@ class TransitModule(nn.Module):
         if restrict_orbit is None:
             return proj_dist
         elif restrict_orbit == 'primary':
-            return torch.where(x < 0., torch.ones_like(x) * MAX_RATIO_RADII, proj_dist)
+            return torch.where(x < 0., torch.ones_like(x, dtype=self.dtype) * MAX_RATIO_RADII, proj_dist)
         elif restrict_orbit == 'secondary':
-            return torch.where(x > 0., torch.ones_like(x) * MAX_RATIO_RADII, proj_dist)
+            return torch.where(x > 0., torch.ones_like(x, dtype=self.dtype) * MAX_RATIO_RADII, proj_dist)
         # if self.cache_position:
         #     self.__pos = out
 
@@ -397,3 +417,4 @@ class TransitModule(nn.Module):
         :return:
         """
         return self.get_flux_drop(**kwargs)
+
