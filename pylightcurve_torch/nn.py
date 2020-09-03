@@ -92,6 +92,46 @@ class TransitModule(nn.Module):
         if self.method is not None:
             return self._methods_dim[self.method]
 
+    @property
+    def rp_over_rs(self):
+        """ Alias for 'rp'"""
+        return self.rp
+
+    @property
+    def fp_over_rs(self):
+        """ Alias for 'fp' """
+        return self.fp
+
+    @property
+    def inclination(self):
+        """ Alias for 'i' """
+        return self.i
+
+    @property
+    def eccentricty(self):
+        """ Alias for 'e' """
+        return self.e
+
+    @property
+    def periastron(self):
+        """ Alias for 'w' """
+        return self.w
+
+    @property
+    def limb_darkening_coefficients(self):
+        """ Alias for 'ldc' """
+        return self.ldc
+
+    @property
+    def sma_over_rs(self):
+        """ Alias for 'a' """
+        return self.a
+
+    @property
+    def mid_time(self):
+        """ Alias for 't0' """
+        return self.t0
+
     def set_time(self, time, time_unit=None):
         """ Sets the tensor of time values
 
