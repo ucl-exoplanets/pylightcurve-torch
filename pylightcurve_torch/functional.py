@@ -26,45 +26,44 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 """
-import numpy as np
 import torch
 
-from .constants import gauss_table
+from .constants import gauss_table, PI, EPS, MAX_RATIO_RADII, MAX_ITERATIONS, ORBIT_PRECISION
 
 EPS = 1.e-16
 
 
 def exoplanet_orbit(period, sma_over_rs, eccentricity, inclination, periastron, mid_time, time_array,
                     ww=None, n_pars=None):
-    inclination = inclination * np.pi / 180.0
-    periastron = periastron * np.pi / 180.0
+    inclination = inclination * PI / 180.
+    periastron = periastron * PI / 180.
     if ww is None:
         ww = time_array.new_zeros(n_pars, 1, requires_grad=False)  # same device and dtype as time_array
-    ww = ww * np.pi / 180.0
+    ww = ww * PI / 180.
 
-    aa = torch.where(periastron < np.pi / 2, 1.0 * np.pi / 2 - periastron, 5.0 * np.pi / 2 - periastron)
-    bb = 2 * torch.atan(torch.sqrt((1 - eccentricity) / (1 + eccentricity)) * torch.tan(aa / 2))
+    aa = torch.where(periastron < PI / 2., PI / 2. - periastron, 5. * PI / 2. - periastron)
+    bb = 2 * torch.atan(torch.sqrt((1. - eccentricity) / (1. + eccentricity)) * torch.tan(aa / 2.))
     if isinstance(bb, torch.Tensor):
-        bb[bb < 0] += 2 * np.pi
+        bb[bb < 0.] += 2. * PI
 
-    mid_time = mid_time - (period / 2.0 / np.pi) * (bb - eccentricity * torch.sin(bb))
-    m = (time_array - mid_time - ((time_array - mid_time) / period).int() * period) * 2.0 * np.pi / period
+    mid_time = mid_time - (period / 2. / PI) * (bb - eccentricity * torch.sin(bb))
+    m = (time_array - mid_time - ((time_array - mid_time) / period).int() * period) * 2. * PI / period
     u0 = m
     stop = False
-    u1 = 0
-    for ii in range(10_000):  # setting a limit of 1k iterations - arbitrary limit
-        u1 = u0 - (u0 - eccentricity * torch.sin(u0) - m) / (1 - eccentricity * torch.cos(u0))
-        stop = (torch.abs(u1 - u0) < 10 ** (-7)).all()
+    u1 = 0.
+    for ii in range(MAX_ITERATIONS):  
+        u1 = u0 - (u0 - eccentricity * torch.sin(u0) - m) / (.1 - eccentricity * torch.cos(u0))
+        stop = (torch.abs(u1 - u0) < ORBIT_PRECISION).all()
         if stop:
             break
         else:
             u0 = u1.clone()
     if not stop:
-        raise RuntimeError('Failed to find a solution in 10000 loops')
+        raise RuntimeError(f'Failed to find a solution in {MAX_ITERATIONS} loops')
 
-    vv = 2 * torch.atan(torch.sqrt((1 + eccentricity) / (1 - eccentricity)) * torch.tan(u1 / 2))
+    vv = 2. * torch.atan(torch.sqrt((1. + eccentricity) / (1. - eccentricity)) * torch.tan(u1 / 2.))
     #
-    rr = sma_over_rs * (1 - (eccentricity ** 2)) / (torch.ones_like(vv) + eccentricity * torch.cos(vv))
+    rr = sma_over_rs * (1. - (eccentricity ** 2.)) / (torch.ones_like(vv) + eccentricity * torch.cos(vv))
     aa = torch.cos(vv + periastron)
     bb = torch.sin(vv + periastron)
     x = rr * bb * torch.sin(inclination)
@@ -74,26 +73,23 @@ def exoplanet_orbit(period, sma_over_rs, eccentricity, inclination, periastron, 
 
 
 def transit_projected_distance(period, sma_over_rs, eccentricity, inclination, periastron, mid_time, time_array):
-    position_vector = exoplanet_orbit(period, sma_over_rs, eccentricity, inclination, periastron, mid_time, time_array)
+    x, y, z = exoplanet_orbit(period, sma_over_rs, eccentricity, inclination, periastron, mid_time, time_array)
 
-    return (torch.where(position_vector[0] < 0, - torch.ones_like(position_vector[0]),
-                        torch.ones_like(position_vector[0])) *
-            torch.sqrt(position_vector[1] ** 2 + position_vector[2] ** 2))
+    return torch.where(x < 0., torch.ones_like(x) * MAX_RATIO_RADII, torch.sqrt(y**2 + z**2))
 
 
 def transit_duration(rp_over_rs, period, sma_over_rs, inclination, eccentricity, periastron, **kwargs):
-    ww = periastron * np.pi / 180
-    ii = inclination * np.pi / 180
+    ww = periastron * PI / 180.
+    ii = inclination * PI / 180.
     ee = eccentricity
     aa = sma_over_rs
-    ro_pt = (1 - ee ** 2) / (1 + ee * torch.sin(ww))
+    ro_pt = (1. - ee ** 2) / (1. + ee * torch.sin(ww))
     b_pt = aa * ro_pt * torch.cos(ii)
     if isinstance(b_pt, torch.Tensor):
-        b_pt[b_pt > 1] = 0.5
-    s_ps = 1.0 + rp_over_rs
+        b_pt[b_pt > 1.] = 0.5
+    s_ps = 1. + rp_over_rs
     df = torch.asin(torch.sqrt((s_ps ** 2 - b_pt ** 2) / ((aa ** 2) * (ro_pt ** 2) - b_pt ** 2)))
-    abs_value = (period * (ro_pt ** 2)) / (np.pi * torch.sqrt(1 - ee ** 2)) * df
-
+    abs_value = (period * (ro_pt ** 2.)) / (PI * torch.sqrt(1. - ee ** 2)) * df
     return abs_value
 
 
@@ -102,29 +98,29 @@ def eclipse_duration(rp_over_rs, period, sma_over_rs, inclination, eccentricity,
 
 
 def eclipse_centered_duration(rp_over_rs, period, sma_over_rs, inclination, eccentricity, periastron, **kwargs):
-    return transit_duration(rp_over_rs, period, sma_over_rs, inclination, eccentricity, periastron + 180)
+    return transit_duration(rp_over_rs, period, sma_over_rs, inclination, eccentricity, periastron + 180.)
 
 
 def integral_r_claret(limb_darkening_coefficients, r):
     a1, a2, a3, a4 = limb_darkening_coefficients.transpose(1, 0)
-    mu44 = 1.0 - r * r
+    mu44 = 1. - r * r
     mu24 = torch.sqrt(mu44)
     mu14 = torch.sqrt(mu24)
-    return - (2.0 * (1.0 - a1 - a2 - a3 - a4) / 4) * mu44 \
-           - (2.0 * a1 / 5) * mu44 * mu14 \
-           - (2.0 * a2 / 6) * mu44 * mu24 \
-           - (2.0 * a3 / 7) * mu44 * mu24 * mu14 \
-           - (2.0 * a4 / 8) * mu44 ** 2
+    return - (2. * (1. - a1 - a2 - a3 - a4) / 4.) * mu44 \
+           - (2. * a1 / 5.) * mu44 * mu14 \
+           - (2. * a2 / 6.) * mu44 * mu24 \
+           - (2. * a3 / 7.) * mu44 * mu24 * mu14 \
+           - (2. * a4 / 8.) * mu44 ** 2
 
 
 def num_claret(r, limb_darkening_coefficients, rprs, z):
     a1, a2, a3, a4 = limb_darkening_coefficients.transpose(1, 0)
     rsq = r ** 2
-    mu44 = 1.0 - rsq
+    mu44 = 1. - rsq
     mu24 = torch.sqrt(mu44)
     mu14 = torch.sqrt(mu24)
-    return ((1.0 - a1 - a2 - a3 - a4) + a1 * mu14 + a2 * mu24 + a3 * mu24 * mu14 + a4 * mu44) \
-           * r * torch.acos(torch.clamp((-rprs ** 2 + z * z + rsq) / (2.0 * z * r), min=-1. + EPS, max=1.0 - EPS))
+    return ((1. - a1 - a2 - a3 - a4) + a1 * mu14 + a2 * mu24 + a3 * mu24 * mu14 + a4 * mu44) \
+           * r * torch.acos(torch.clamp((-rprs ** 2 + z * z + rsq) / (2. * z * r), min=-1. + EPS, max=1. - EPS))
 
 
 def integral_r_f_claret(limb_darkening_coefficients, rprs, z, r1, r2, precision=3):
@@ -136,15 +132,15 @@ def integral_r_f_claret(limb_darkening_coefficients, rprs, z, r1, r2, precision=
 
 def integral_r_linear(limb_darkening_coefficients, r):
     a1 = limb_darkening_coefficients[:, 0]
-    musq = 1 - r ** 2
-    return (-1.0 / 6) * musq * (3.0 + a1 * (-3.0 + 2.0 * torch.sqrt(musq)))
+    musq = 1. - r ** 2
+    return (-1. / 6.) * musq * (3. + a1 * (-3. + 2. * torch.sqrt(musq)))
 
 
 def num_linear(r, limb_darkening_coefficients, rprs, z):
     a1 = limb_darkening_coefficients[:, 0]
     rsq = r ** 2
-    return (1.0 - a1 * (1.0 - torch.sqrt(1.0 - rsq))) \
-           * r * torch.acos(torch.clamp((-rprs ** 2 + z ** 2 + rsq) / (2.0 * z * r), min=-1 + EPS, max=1.0 - EPS))
+    return (1. - a1 * (1. - torch.sqrt(1. - rsq))) \
+           * r * torch.acos(torch.clamp((-rprs ** 2 + z ** 2 + rsq) / (2. * z * r), min=-1 + EPS, max=1. - EPS))
 
 
 def integral_r_f_linear(limb_darkening_coefficients, rprs, z, r1, r2, precision=3):
@@ -156,17 +152,17 @@ def integral_r_f_linear(limb_darkening_coefficients, rprs, z, r1, r2, precision=
 
 def integral_r_quad(limb_darkening_coefficients, r):
     a1, a2 = limb_darkening_coefficients.transpose(1, 0)
-    musq = 1 - r ** 2
+    musq = 1. - r ** 2
     mu = torch.sqrt(musq)
-    return (1.0 / 12) * (-4.0 * (a1 + 2.0 * a2) * mu * musq + 6.0 * (-1 + a1 + a2) * musq + 3.0 * a2 * musq * musq)
+    return (1. / 12.) * (-4. * (a1 + 2. * a2) * mu * musq + 6. * (-1. + a1 + a2) * musq + 3. * a2 * musq * musq)
 
 
 def num_quad(r, limb_darkening_coefficients, rprs, z):
     a1, a2 = limb_darkening_coefficients.transpose(1, 0)
     rsq = r ** 2
-    cc = 1.0 - torch.sqrt(1.0 - rsq)
-    return (1.0 - a1 * cc - a2 * cc * cc) \
-           * r * torch.acos(torch.clamp((-rprs ** 2 + z ** 2 + rsq) / (2.0 * z * r), min=-1 + EPS, max=1.0 - EPS))
+    cc = 1. - torch.sqrt(1. - rsq)
+    return (1. - a1 * cc - a2 * cc * cc) \
+           * r * torch.acos(torch.clamp((-rprs ** 2 + z ** 2 + rsq) / (2. * z * r), min=-1. + EPS, max=1. - EPS))
 
 
 def integral_r_f_quad(limb_darkening_coefficients, rprs, z, r1, r2, precision=3):
@@ -178,17 +174,17 @@ def integral_r_f_quad(limb_darkening_coefficients, rprs, z, r1, r2, precision=3)
 
 def integral_r_sqrt(limb_darkening_coefficients, r):
     a1, a2 = limb_darkening_coefficients.transpose(1, 0)
-    musq = 1 - r ** 2
+    musq = 1. - r ** 2
     mu = torch.sqrt(musq)
-    return ((-2.0 / 5) * a2 * torch.sqrt(mu) - (1.0 / 3) * a1 * mu + (1.0 / 2) * (-1 + a1 + a2)) * musq
+    return ((-2. / 5.) * a2 * torch.sqrt(mu) - (1. / 3.) * a1 * mu + (1. / 2.) * (-1 + a1 + a2)) * musq
 
 
 def num_sqrt_torch(r, limb_darkening_coefficients, rprs, z):
     a1, a2 = limb_darkening_coefficients.transpose(1, 0)
     rsq = r ** 2
-    mu = torch.sqrt(1.0 - rsq)
-    return ((1.0 - a1 * (1 - mu) - a2 * (1.0 - torch.sqrt(mu)))
-            * r * torch.acos(torch.clamp((-rprs ** 2 + z ** 2 + rsq) / (2.0 * z * r), min=-1 + EPS, max=1.0 - EPS)))
+    mu = torch.sqrt(1. - rsq)
+    return ((1. - a1 * (1. - mu) - a2 * (1. - torch.sqrt(mu)))
+            * r * torch.acos(torch.clamp((-rprs ** 2 + z ** 2 + rsq) / (2. * z * r), min=-1. + EPS, max=1. - EPS)))
 
 
 def integral_r_f_sqrt_torch(limb_darkening_coefficients, rprs, z, r1, r2, precision=3):
@@ -230,9 +226,9 @@ def integral_plus_core(method, limb_darkening_coefficients, rprs, z, ww1, ww2, p
         return z
 
     rr1 = z * torch.cos(ww1) + torch.sqrt(torch.clamp(rprs ** 2 - (z * torch.sin(ww1)) ** 2, EPS))
-    rr1 = torch.clamp(rr1, EPS, 1 - EPS)
+    rr1 = torch.clamp(rr1, EPS, 1. - EPS)
     rr2 = z * torch.cos(ww2) + torch.sqrt(torch.clamp(rprs ** 2 - (z * torch.sin(ww2)) ** 2, EPS))
-    rr2 = torch.clamp(rr2, EPS, 1 - EPS)
+    rr2 = torch.clamp(rr2, EPS, 1. - EPS)
     w1 = torch.min(ww1, ww2)
     r1 = torch.min(rr1, rr2)
     w2 = torch.max(ww1, ww2)
@@ -277,7 +273,7 @@ def transit_flux_drop(method, limb_darkening_coefficients, rp_over_rs, z_over_rs
     if len(limb_darkening_coefficients.shape) == 1:
         limb_darkening_coefficients = limb_darkening_coefficients[None, :]
 
-    z_over_rs = torch.where(z_over_rs < 0, 1.0 + 100.0 * rp_over_rs, z_over_rs)
+    z_over_rs = torch.where(z_over_rs < 0, 1. + 100.0 * rp_over_rs, z_over_rs)
     if isinstance(rp_over_rs, torch.Tensor):
         n_pars = max(rp_over_rs.shape[0], len(z_over_rs))
     n_pts = z_over_rs.shape[-1]
@@ -303,15 +299,15 @@ def transit_flux_drop(method, limb_darkening_coefficients, rp_over_rs, z_over_rs
     star_case = case5 + case6 + case7 + casea + casec
 
     # cross points
-    ph = torch.acos(torch.clamp((1.0 - rp_over_rs ** 2 + zsq) / (2.0 * z_over_rs), min=-(1 - EPS), max=1 - EPS))
+    ph = torch.acos(torch.clamp((1. - rp_over_rs ** 2 + zsq) / (2. * z_over_rs), min=-(1 - EPS), max=1 - EPS))
     theta_1 = z_over_rs.new_zeros((n_pars, n_pts))
     ph_case = case5 + casea + casec
     theta_1[ph_case] = ph[ph_case]
     theta_2 = torch.asin(torch.min(rp_over_rs / z_over_rs, torch.ones_like(z_over_rs)))
-    theta_2[case1] = np.pi
-    theta_2[case2] = np.pi / 2.0
-    theta_2[casea] = np.pi
-    theta_2[casec] = np.pi / 2.0
+    theta_2[case1] = PI
+    theta_2[case2] = PI / 2.
+    theta_2[casea] = PI
+    theta_2[casec] = PI / 2.
     theta_2[case7] = ph[case7]
 
     # flux_upper
@@ -333,14 +329,14 @@ def transit_flux_drop(method, limb_darkening_coefficients, rp_over_rs, z_over_rs
         plusflux[ind0[:, 0], ind0[:, 1]] = integral_centred(method,
                                                             flex_ind(limb_darkening_coefficients, ind0[:, 0]),
                                                             flex_ind(rp_over_rs, ind0[:, 0])[:, 0],
-                                                            rp_over_rs.new_zeros(1), np.pi)
+                                                            rp_over_rs.new_zeros(1), PI)
 
     indb = caseb.nonzero()
     if len(indb):
         plusflux[indb[:, 0], indb[:, 1]] = integral_centred(method,
                                                             flex_ind(limb_darkening_coefficients, indb[:, 0]),
                                                             rp_over_rs.new_ones(1),
-                                                            rp_over_rs.new_zeros(1), np.pi)
+                                                            rp_over_rs.new_zeros(1), PI)
 
     # flux_lower
 
@@ -365,32 +361,27 @@ def transit_flux_drop(method, limb_darkening_coefficients, rp_over_rs, z_over_rs
 
     # flux_total
     total_flux = integral_centred(method, limb_darkening_coefficients, rp_over_rs.new_ones(1),
-                                  rp_over_rs.new_zeros(n_pars), 2.0 * np.pi)[:, None]
-    return 1 - (2.0 / total_flux) * (plusflux + starflux - minsflux)
+                                  rp_over_rs.new_zeros(n_pars), 2. * PI)[:, None]
+    return 1 - (2. / total_flux) * (plusflux + starflux - minsflux)
 
 
 def transit(method, limb_darkening_coefficients, rp_over_rs, period, sma_over_rs, eccentricity, inclination, periastron,
             mid_time, time_array, precision=3):
-    position_vector = exoplanet_orbit(period, sma_over_rs, eccentricity, inclination, periastron, mid_time, time_array)
-    projected_distance = torch.where(
-        position_vector[0] < 0, 1.0 + 5.0 * rp_over_rs,
-        torch.sqrt(position_vector[1] ** 2
-                   + position_vector[2] ** 2))
+    x, y, z = exoplanet_orbit(period, sma_over_rs, eccentricity, inclination, periastron, mid_time, time_array)
+    projected_distance = torch.where(x < 0., MAX_RATIO_RADII, torch.sqrt(y**2 + z**2))
 
     return transit_flux_drop(method, limb_darkening_coefficients, rp_over_rs, projected_distance, precision=precision)
 
 
 def eclipse(fp_over_fs, rp_over_rs, period, sma_over_rs, eccentricity, inclination, periastron, mid_time, time_array,
             precision=3):
-    position_vector = exoplanet_orbit(period, - sma_over_rs / rp_over_rs, eccentricity, inclination, periastron,
-                                      mid_time, time_array)
+    x, y, z = exoplanet_orbit(period, - sma_over_rs / rp_over_rs, eccentricity, inclination, periastron,
+                              mid_time, time_array)
+    projected_distance = torch.where(x < 0, MAX_RATIO_RADII, y**2 + z**2)
+    n_pars = max(projected_distance.shape[0], fp_over_fs.shape[0] if isinstance(fp_over_fs, torch.Tensor) else 0)
 
-    projected_distance = torch.where(position_vector[0] < 0, 1.0 + 5.0 / rp_over_rs,
-                                     torch.sqrt(position_vector[1] ** 2 + position_vector[2] ** 2))
-    n_pars = max(projected_distance.shape[0])
-
-    return (1.0 + fp_over_fs * transit_flux_drop('linear', torch.zeros(n_pars, 1), 1 / rp_over_rs,
-                                                 projected_distance, precision=precision)) / (1.0 + fp_over_fs)
+    return (1. + fp_over_fs * transit_flux_drop('linear', torch.zeros(n_pars, 1), 1. / rp_over_rs,
+                                                 projected_distance, precision=precision)) / (1. + fp_over_fs)
 
 
 def eclipse_centered(fp_over_fs, rp_over_rs, period, sma_over_rs, eccentricity, inclination, periastron, mid_time,
