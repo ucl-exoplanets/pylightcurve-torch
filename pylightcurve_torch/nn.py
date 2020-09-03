@@ -4,12 +4,13 @@ from typing import Any
 import torch
 from torch import nn
 
-from .constants import MAX_RATIO_RADII
+from .constants import MAX_RATIO_RADII, PLC_PARNAMES
 from .functional import exoplanet_orbit, transit_duration, transit_flux_drop
 
 
 class TransitModule(nn.Module):
     _parnames = {'method', 'P', 'i', 'e', 'a', 'rp', 'fp', 't0', 'w', 'ldc'}
+    _authorised_parnames = _parnames.union(PLC_PARNAMES)
     _methods_dim = {'linear': 1, 'sqrt': 2, 'quad': 2, 'claret': 4}
     _pars_of_fun = {'position': {'P', 'i', 'e', 'a', 't0', 'w'},
                     'duration': {'i', 'rp', 'P', 'a', 'i', 'e', 'w'},
@@ -54,7 +55,6 @@ class TransitModule(nn.Module):
             except AssertionError:
                 raise ValueError("epoch_type should be one of: 'primary', 'secondary' ")
         self.epoch_type = epoch_type
-        self._pos_factor = float((self.epoch_type == 'primary') - (self.epoch_type == 'secondary'))
         self.precision = precision
 
         self.__shape = [None, None]
@@ -92,6 +92,46 @@ class TransitModule(nn.Module):
         """
         if self.method is not None:
             return self._methods_dim[self.method]
+
+    @property
+    def rp_over_rs(self):
+        """ Alias for 'rp'"""
+        return self.rp
+
+    @property
+    def fp_over_rs(self):
+        """ Alias for 'fp' """
+        return self.fp
+
+    @property
+    def inclination(self):
+        """ Alias for 'i' """
+        return self.i
+
+    @property
+    def eccentricty(self):
+        """ Alias for 'e' """
+        return self.e
+
+    @property
+    def periastron(self):
+        """ Alias for 'w' """
+        return self.w
+
+    @property
+    def limb_darkening_coefficients(self):
+        """ Alias for 'ldc' """
+        return self.ldc
+
+    @property
+    def sma_over_rs(self):
+        """ Alias for 'a' """
+        return self.a
+
+    @property
+    def mid_time(self):
+        """ Alias for 't0' """
+        return self.t0
 
     def set_time(self, time, time_unit=None):
         """ Sets the tensor of time values
@@ -135,7 +175,7 @@ class TransitModule(nn.Module):
         if not kwargs:
             warnings.warn('no parameter provided')
         for name, value in kwargs.items():
-            if name not in self._parnames:
+            if name not in self._authorised_parnames:
                 raise RuntimeError(f"parameter {name} not in authorized model's list")
 
             if name == "method":
