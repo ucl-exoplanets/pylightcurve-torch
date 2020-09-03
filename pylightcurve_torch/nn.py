@@ -216,7 +216,7 @@ class TransitModule(nn.Module):
 
     def fit_param(self, *args):
         for name in args:
-            if name not in self._parnames:
+            if name not in self._authorised_parnames:
                 raise RuntimeError(f"parameter {name} not in authorized model's list")
             param = getattr(self, name)
             if param is None:
@@ -226,7 +226,7 @@ class TransitModule(nn.Module):
 
     def freeze_param(self, *args):
         for name in args:
-            if name not in self._parnames:
+            if name not in self._authorised_parnames:
                 raise RuntimeError(f"parameter {name} not in authorized model's list")
             param = getattr(self, name)
             if param is None:
@@ -240,6 +240,8 @@ class TransitModule(nn.Module):
         :param name: parameter name (str)
         :return:
         """
+        if name not in self._authorised_parnames:
+            raise RuntimeError(f"parameter {name} not in authorized model's list")
         setattr(self, name, None)
 
     def clear_params(self, *args):
