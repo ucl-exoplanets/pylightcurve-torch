@@ -17,7 +17,7 @@ class TransitModule(nn.Module):
                     'drop_p': {'method', 'ldc', 'rp'},
                     'drop_s': {'fp', 'rp'}}
 
-    def __init__(self, time=None, primary=True, secondary=False, epoch_type='primary', precision=3, **kwargs):
+    def __init__(self, time=None, primary=True, secondary=False, epoch_type=None, precision=3, **kwargs):
         """ Creates a pytorch transit model, inheriting torch.nn.Module
 
         The model computes kepler positions, primary and secondary transits flux_drop drops for N different sets of
@@ -45,7 +45,7 @@ class TransitModule(nn.Module):
             raise RuntimeError("transit can't be neither primary nor secondary")
 
         if epoch_type is None:
-            self.epoch_type = 'primary' if self.primary else 'secondary'
+            self.epoch_type = ('primary' if self.primary else 'secondary')
         else:
             try:
                 self.epoch_type = epoch_type.strip().lower()
@@ -54,7 +54,6 @@ class TransitModule(nn.Module):
                 raise TypeError("epoch_type must be a str, one of 'primary' and 'secondary' ")
             except AssertionError:
                 raise ValueError("epoch_type should be one of: 'primary', 'secondary' ")
-        self.epoch_type = epoch_type
         self.precision = precision
 
         self.__shape = [None, None]
@@ -254,7 +253,7 @@ class TransitModule(nn.Module):
             args = self._parnames
             self.__shape[0] = None
         for name in args:
-            self.clear_params(name)
+            self.clear_param(name)
 
     def set_method(self, value):
         """ Sets the limb-darkening method
