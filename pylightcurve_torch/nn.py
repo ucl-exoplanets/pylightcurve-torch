@@ -3,12 +3,19 @@ import torch
 from torch import nn
 from typing import Any
 
+from .constants import MAX_RATIO_RADII
+from .functional import exoplanet_orbit, transit_duration, transit_flux_drop
+
 
 class TransitModule(nn.Module):
     _parnames = {'method', 'P', 'i', 'e', 'a', 'rp', 'fp', 't0', 'w', 'ldc'}
     _methods_dim = {'linear': 1, 'sqrt': 2, 'quad': 2, 'claret': 4}
+    _pars_of_fun = {'position': {'P', 'i', 'e', 'a', 't0', 'w'},
+                    'duration': {'i', 'rp', 'P', 'a', 'i', 'e', 'w'},
+                    'drop_p': {'method', 'ldc', 'rp'},
+                    'drop_s': {'fp', 'rp'}}
 
-    def __init__(self, time=None, primary=True, secondary=False, epoch_type=None, precision=3, **kwargs):
+    def __init__(self, time=None, primary=True, secondary=False, epoch_type='primary', precision=3, **kwargs):
         super().__init__()
         self.time = None
         self.time_unit = None
@@ -34,12 +41,13 @@ class TransitModule(nn.Module):
         self._pos_factor = float((self.epoch_type == 'primary') - (self.epoch_type == 'secondary'))
         self.precision = precision
 
+        self.__shape = [None, None]
+
         for name in self._parnames:
             setattr(self, name, None)
         if kwargs:
             self.set_param(**kwargs)
 
-        self.__shape = [None, None]
         self.__pos = None
         self.__dur = None
         self.__flux_p = None
@@ -48,6 +56,10 @@ class TransitModule(nn.Module):
     def __repr__(self):
         return (f"TransitModule({'primary, ' if self.primary else ''}"
                 + f"{'secondary, ' if self.secondary else ''}shape={self.shape})")
+
+    @property
+    def pos_factor(self):
+        return float((self.epoch_type == 'primary') - (self.epoch_type == 'secondary'))
 
     @property
     def shape(self):
@@ -62,12 +74,12 @@ class TransitModule(nn.Module):
             return self._methods_dim[self.method]
 
     def set_time(self, time, time_unit=None):
-        """ Sets the array of time values
+        """ Sets the tensor of time values
 
-        the input time vector wiill beconverted to a detached tensor
+        the input time vector will be converted to a detached tensor
 
         :param time: array-like time series of time values. Shape: (T,) or (N, T)
-        :param time_unit: time unit for record
+        :param time_unit: time unit for record (optional)
         :return: None
         """
         if time is None:
@@ -85,14 +97,19 @@ class TransitModule(nn.Module):
         self.time_unit = time_unit
 
     def clear_time(self):
+        """ Clears the time tensor
+
+        :return:
+        """
         self.time = None
         self.__shape[1] = None
 
     def set_param(self, **kwargs):
-        """ sets Module attributes as trainable Module Parameters when possible - and as simple attributes otherwise
-        :param name: param name
-        :param value: param value
-        (default = False). This option overwrites param's setup when input is a nn.Parameter or a Tensor
+        """ sets or updates transit parameters values
+        Parameters are accessible as class attributes.
+        Except method, all params are torch tensor parameters
+
+        :param kwargs: dict of (name, value) of parameters
         :return:
         """
         if not kwargs:
@@ -103,7 +120,7 @@ class TransitModule(nn.Module):
 
             if name == "method":
                 self.set_method(value)
-                return None
+                continue
             if isinstance(value, nn.Parameter):
                 data = value.data
             elif isinstance(value, torch.Tensor):
@@ -125,9 +142,9 @@ class TransitModule(nn.Module):
                                       "It is advised to provide either method str arg or 2D-shaped ldc inputs")
                         dim = 1
             data = data.view(-1, dim)
-            if self.__shape[0] in [None, 1]:
+            if self.shape[0] in [None, 1]:
                 self.__shape[0] = data.shape[0]
-            elif data.shape[0] > 1 and data.shape[0] != self.__shape[0]:
+            elif data.shape[0] > 1 and data.shape[0] != self.shape[0]:
                 raise RuntimeError("incompatible batch dimensions between parameters"
                                    + f" (module's ({self.shape[0]}) != {name}'s ({data.shape[0]}))")
 
@@ -167,6 +184,11 @@ class TransitModule(nn.Module):
             self.clear_params(name)
 
     def set_method(self, value):
+        """ Sets the limb-darkening method
+
+        :param value: one of [None, 'linear', 'sqrt', 'quad', 'claret']
+        :return:
+        """
         if not (value is None or value in self._methods_dim):
             raise ValueError(f'if stated limb darkening method must be in {tuple(self._methods_dim.keys())}')
         setattr(self, 'method', value)
@@ -174,5 +196,133 @@ class TransitModule(nn.Module):
             self.set_param(ldc=None)
             warnings.warn('ldc method incompatible with ldc tensor dimension. ldc coefs have been reset.')
 
-    def forward(self, *input: Any, **kwargs: Any):
-        raise NotImplementedError
+    def get_input_params(self, function='none', allow_none=False, **kwargs):
+        """ Returns a dict of model parameters
+
+        :param function: which function to provide the params of - 'none', 'position', 'duration', 'drop_p', 'drop_s'
+        :param allow_none: when False, will raise an error if a param is missing
+        :param kwargs: parameter names to be given. if None is povided
+        :return:
+        """
+        parlist = self._pars_of_fun[function]
+        out = dict()
+        for k in parlist:
+            if k in kwargs:
+                v = kwargs[k]
+            else:
+                v = getattr(self, k)
+            if not allow_none and v is None:
+                raise ValueError(f'Parameter {k} should not be missing')
+            out[k] = v
+        return out
+
+    def get_position(self, **kwargs):
+        """ Computes the 3D cartesian positions of the planet following a Keplerian orbit
+        if any model parameter is provided while calling this method, no caching will take place
+        :param kwargs:
+        :return: tuple of position arrays x, y, z, each of shape (N, T)
+        # """
+        # if self.cache_position and self.__pos is not None and not {k for k in kwargs if k in self.parpos}:
+        #     return self.__pos
+        d = self.get_input_params(**kwargs, function='position')
+        x, y, z = exoplanet_orbit(d['P'], d['a'], d['e'], d['i'], d['w'], d['t0'], self.time, ww=torch.zeros(1, 1),
+                                  n_pars=self.shape[0])
+        # if self.cache_position:
+        #     self.__pos = out
+        return x * self.pos_factor, y * self.pos_factor, z * self.pos_factor
+
+    position = property(get_position)
+
+    def get_proj_dist(self, restrict_orbit=None, **kwargs):
+        x, y, z = self.get_position(**kwargs)
+        proj_dist = torch.sqrt(y ** 2 + z ** 2)
+        if restrict_orbit is None:
+            return proj_dist
+        elif restrict_orbit == 'primary':
+            return torch.where(x < 0., torch.ones_like(x) * MAX_RATIO_RADII, proj_dist)
+        elif restrict_orbit == 'secondary':
+            return torch.where(x > 0., torch.ones_like(x) * MAX_RATIO_RADII, proj_dist)
+        # if self.cache_position:
+        #     self.__pos = out
+
+    proj_dist = property(get_proj_dist)
+
+    def get_duration(self, **kwargs):
+        """ Returns the cached or computed duration of transit(s)
+        if any model parameter is provided while calling this method, no caching will take place
+        :return:
+        """
+        # if self.cache_duration and self.__dur is not None and not {k for k in kwargs if k in self.pardur}:
+        #     return self.__dur
+        d = self.get_input_params(**kwargs, function='duration')
+        out = transit_duration(d['rp'], d['P'], d['a'], d['i'], d['e'], d['w'])
+        # if self.cache_duration:
+        #     self.__dur = out
+        return out
+
+    duration = property(get_duration)
+
+    def get_flux_p(self, **kwargs):
+        """ Returns the cached or computed flux_drop drop of transit(s), relative to the star
+
+        :param precision: precision of computation (int between 1 and 6)
+        :param kwargs: additional functions argument to replace the class' one, disabling caching where necessary
+        :return: (N, T)-shaped array of flux_drop drop values
+        """
+        # if self.cache_flux and self.__flux_p is not None and not kwargs:
+        #     return self.__flux_p
+
+        proj_dist = self.get_proj_dist(**kwargs, restrict_orbit='primary')
+        d = self.get_input_params(**kwargs, function='drop_p')
+        out = transit_flux_drop(d['method'], d['ldc'], d['rp'], proj_dist,
+                                precision=self.precision, n_pars=self.shape[0])
+        # if self.cache_flux:
+        #     self.__flux_p = out
+        return out
+
+    flux_p = property(get_flux_p)
+
+    def get_flux_s(self, **kwargs):
+        """ Returns the cached or computed flux_drop drop of eclipse(s), relative to the star
+
+        :param precision: precision of computation (int between 1 and 6)
+        :param kwargs: additional functions argument to replace the class' one, disabling caching where necessary
+        :return: (N, T)-shaped array of flux drop values
+        """
+        # if self.cache_flux and self.__flux_s is not None and not kwargs:
+        #     return self.__flux_s
+        d = self.get_input_params(**kwargs, function='drop_s')
+        proj_dist = self.get_proj_dist(**kwargs, restrict_orbit='secondary') / d['rp']
+        out = transit_flux_drop('linear', torch.zeros(self.shape[0], 1), 1 / d['rp'], proj_dist,
+                                precision=self.precision, n_pars=self.shape[0])
+        out = (1. + d['fp'] * out) / (1. + d['fp'])
+        # if self.cache_flux:
+        #     self.__flux_s = out
+        return out
+
+    flux_s = property(get_flux_s)
+
+    def get_flux_drop(self, **kwargs):
+        """ Returns the combined flux drop of primary/secondary transits (if activated) relative to the star
+
+        :param kwargs: transit parameters to substitute to the model's.
+
+        Be wary, no shape modification implemented for these additional arguments
+        :return: (N, T)-shaped array of flux drop values
+        """
+        out = 1.
+        if self.primary:
+            out *= self.get_flux_p(**kwargs)
+        if self.secondary:
+            out *= self.get_flux_s(**kwargs)
+        return out
+
+    flux_drop = property(get_flux_drop)
+
+    def forward(self, **kwargs: Any):
+        """ Alias for get_flux_drop function, overriding nn.Module.forward method
+
+        :return:
+        """
+        return self.get_flux_drop(**kwargs)
+

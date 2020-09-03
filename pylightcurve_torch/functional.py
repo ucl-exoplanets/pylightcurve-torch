@@ -30,8 +30,6 @@ import torch
 
 from .constants import gauss_table, PI, EPS, MAX_RATIO_RADII, MAX_ITERATIONS, ORBIT_PRECISION
 
-EPS = 1.e-16
-
 
 def exoplanet_orbit(period, sma_over_rs, eccentricity, inclination, periastron, mid_time, time_array,
                     ww=None, n_pars=None):
@@ -51,15 +49,16 @@ def exoplanet_orbit(period, sma_over_rs, eccentricity, inclination, periastron, 
     u0 = m
     stop = False
     u1 = 0.
-    for ii in range(MAX_ITERATIONS):  
-        u1 = u0 - (u0 - eccentricity * torch.sin(u0) - m) / (.1 - eccentricity * torch.cos(u0))
+    for ii in range(MAX_ITERATIONS):
+        u1 = u0 - (u0 - eccentricity * torch.sin(u0) - m) / (1. - eccentricity * torch.cos(u0))
         stop = (torch.abs(u1 - u0) < ORBIT_PRECISION).all()
         if stop:
             break
         else:
             u0 = u1.clone()
     if not stop:
-        raise RuntimeError(f'Failed to find a solution in {MAX_ITERATIONS} loops')
+        raise RuntimeError(f'Failed to find a solution in {MAX_ITERATIONS} loops. \n'
+                           + f"mean precision = {torch.abs(u1 - u0).mean()} (req={ORBIT_PRECISION}")
 
     vv = 2. * torch.atan(torch.sqrt((1. + eccentricity) / (1. - eccentricity)) * torch.tan(u1 / 2.))
     #
@@ -266,7 +265,7 @@ def gauss_numerical_integration(f, x1, x2, precision, *f_args):
                             *f_args), 0)  # TODO: maybe better to avoid conversion?
 
 
-def transit_flux_drop(method, limb_darkening_coefficients, rp_over_rs, z_over_rs, precision=3):
+def transit_flux_drop(method, limb_darkening_coefficients, rp_over_rs, z_over_rs, precision=3, n_pars=None):
     if len(z_over_rs) == 0:
         return torch.Tensor([])
 
@@ -274,7 +273,7 @@ def transit_flux_drop(method, limb_darkening_coefficients, rp_over_rs, z_over_rs
         limb_darkening_coefficients = limb_darkening_coefficients[None, :]
 
     z_over_rs = torch.where(z_over_rs < 0, 1. + 100.0 * rp_over_rs, z_over_rs)
-    if isinstance(rp_over_rs, torch.Tensor):
+    if isinstance(rp_over_rs, torch.Tensor) and n_pars is None:
         n_pars = max(rp_over_rs.shape[0], len(z_over_rs))
     n_pts = z_over_rs.shape[-1]
 
