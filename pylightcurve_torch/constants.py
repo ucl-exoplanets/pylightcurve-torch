@@ -5,8 +5,8 @@ MAX_RATIO_RADII = 1.e12
 EPS = torch.finfo(float).tiny
 MAX_ITERATIONS = 50_000
 ORBIT_PRECISION = 1e-7
-PLC_PARNAMES = {'period', 'inclination', 'eccentricity', 'sma_over_rs', 'rp_over_rs', 'fp_over_rs', 'mid_time',
-                'periastron', 'limb_darkening_coefficients'}
+PLC_ALIASES = {'period': 'P', 'inclination': 'i', 'eccentricity': 'e', 'sma_over_rs': 'a', 'rp_over_rs': 'rp',
+               'fp_over_fs': 'fp', 'mid_time': 't0', 'periastron': 'w', 'limb_darkening_coefficients': 'ldc'}
 
 gauss0 = torch.tensor([
     [1.0000000000000000, -0.5773502691896257],

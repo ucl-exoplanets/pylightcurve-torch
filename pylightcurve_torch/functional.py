@@ -32,11 +32,11 @@ from .constants import gauss_table, PI, EPS, MAX_RATIO_RADII, MAX_ITERATIONS, OR
 
 
 def exoplanet_orbit(period, sma_over_rs, eccentricity, inclination, periastron, mid_time, time_array,
-                    ww=None, n_pars=None):
+                    ww=None, n_pars=None, dtype=None):
     inclination = inclination * PI / 180.
     periastron = periastron * PI / 180.
     if ww is None:
-        ww = time_array.new_zeros(n_pars, 1, requires_grad=False)  # same device and dtype as time_array
+        ww = time_array.new_zeros(n_pars, 1, requires_grad=False, dtype=dtype)  # same device and dtype as time_array
     ww = ww * PI / 180.
 
     aa = torch.where(periastron < PI / 2., PI / 2. - periastron, 5. * PI / 2. - periastron)
@@ -57,8 +57,10 @@ def exoplanet_orbit(period, sma_over_rs, eccentricity, inclination, periastron, 
         else:
             u0 = u1.clone()
     if not stop:
+        u1 = u0 - (u0 - eccentricity * torch.sin(u0) - m) / (1. - eccentricity * torch.cos(u0))
         raise RuntimeError(f'Failed to find a solution in {MAX_ITERATIONS} loops. \n'
-                           + f"mean precision = {torch.abs(u1 - u0).mean()} (req={ORBIT_PRECISION}")
+                           + f"mean precision = {torch.abs(u1 - u0).mean().item() / ORBIT_PRECISION} (req={ORBIT_PRECISION}) \n"
+                           + f"{torch.isnan(u0).sum().item()} nan values in u0")
 
     vv = 2. * torch.atan(torch.sqrt((1. + eccentricity) / (1. - eccentricity)) * torch.tan(u1 / 2.))
     #
