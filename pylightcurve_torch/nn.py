@@ -35,12 +35,7 @@ class TransitModule(nn.Module):
             be used.
         :param kwargs: additional optional parameters. If given these must be named like transit params
         """
-        self.time = None
         super().__init__()
-        self.time = None
-        self.time_unit = None
-        if time is not None:
-            self.set_time(time)
 
         self.primary = bool(primary)
         self.secondary = bool(secondary)
@@ -71,6 +66,11 @@ class TransitModule(nn.Module):
                 self.__setattr__(name, None)
         if kwargs:
             self.set_param(**kwargs)
+
+        self.time = None
+        self.time_unit = None
+        if time is not None:
+            self.set_time(time)
 
         self.__pos = None
         self.__dur = None
