@@ -73,12 +73,6 @@ def exoplanet_orbit(period, sma_over_rs, eccentricity, inclination, periastron, 
     return [x, y, z]
 
 
-def transit_projected_distance(period, sma_over_rs, eccentricity, inclination, periastron, mid_time, time_array):
-    x, y, z = exoplanet_orbit(period, sma_over_rs, eccentricity, inclination, periastron, mid_time, time_array)
-
-    return torch.where(x < 0., torch.ones_like(x) * MAX_RATIO_RADII, torch.sqrt(y ** 2 + z ** 2))
-
-
 def transit_duration(rp_over_rs, period, sma_over_rs, inclination, eccentricity, periastron, **kwargs):
     ww = periastron * PI / 180.
     ii = inclination * PI / 180.
@@ -268,19 +262,26 @@ def gauss_numerical_integration(f, x1, x2, precision, *f_args):
 
 
 def transit_flux_drop(method, limb_darkening_coefficients, rp_over_rs, z_over_rs, precision=3, n_pars=None):
-    if len(z_over_rs) == 0:
-        return torch.Tensor([])
+    """
 
-    if len(limb_darkening_coefficients.shape) == 1:
-        limb_darkening_coefficients = limb_darkening_coefficients[None, :]
+    :param method: one of ('linear', 'sqrt', 'quad', 'claret')
+    :param limb_darkening_coefficients: (N, d)-shape tensor where N is 1 or the batch_size and d the ldc dimensionality
+    :param rp_over_rs: (1,1) or (N, 1) shape tensor of Rp/Rs values
+    :param z_over_rs: (1, T) or (N, T) shape tensor of projected distances
+    :param precision: integer between 1 and 6
+    :param n_pars: (optional), integer specifying the batch size to resolve ambiguous cases
+    :return:
+    """
+    if n_pars is None:
+        n_pars = max(rp_over_rs.shape[0], len(z_over_rs), limb_darkening_coefficients.shape[0])
 
-    z_over_rs = torch.where(z_over_rs < 0, 1. + 100.0 * rp_over_rs, z_over_rs)
-    if isinstance(rp_over_rs, torch.Tensor) and n_pars is None:
-        n_pars = max(rp_over_rs.shape[0], len(z_over_rs))
+    if n_pars > 1 and len(z_over_rs) == 1:
+        z_over_rs = z_over_rs.repeat(n_pars, 1)
+
     n_pts = z_over_rs.shape[-1]
 
     # cases
-    zsq = z_over_rs ** 2  # n, T
+    zsq = z_over_rs ** 2  # n,
     sum_z_rprs = z_over_rs + rp_over_rs  # n, T
     dif_z_rprs = rp_over_rs - z_over_rs  # n, T
     sqr_dif_z_rprs = zsq - rp_over_rs ** 2  # n, T
