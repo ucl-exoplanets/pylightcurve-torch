@@ -312,7 +312,7 @@ class TransitModule(nn.Module):
             else:
                 v = getattr(self, k)
             if not allow_none and v is None:
-                raise ValueError(f'Parameter {k} should not be missing')
+                raise RuntimeError(f"Parameter '{k}' should not be missing")
             out[k] = v
         return out
 
@@ -324,6 +324,8 @@ class TransitModule(nn.Module):
         # """
         # if self.cache_position and self.__pos is not None and not {k for k in kwargs if k in self.parpos}:
         #     return self.__pos
+        if self.time is None:
+            raise RuntimeError('time attribute needs to be defined')
         d = self.get_input_params(**kwargs, function='position')
         x, y, z = exoplanet_orbit(d['P'], d['a'], d['e'], d['i'], d['w'], d['t0'], self.time,
                                   ww=torch.zeros(1, 1, dtype=self.dtype), n_pars=self.shape[0], dtype=self.dtype)
