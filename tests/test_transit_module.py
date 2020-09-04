@@ -89,6 +89,10 @@ def test_transit_params():
             assert isinstance(x, torch.Tensor)
             assert not torch.isnan(x).any()
 
+        flux_1 = tm()
+        # External arguments
+        flux_2 = tm(**d)
+        assert torch.isclose(flux_1, flux_2).all()
 
 def test_time_tensor():
     tm = TransitModule(**params_dicts['scalar'])

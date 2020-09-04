@@ -331,6 +331,8 @@ class TransitModule(nn.Module):
         for k in parlist:
             if k in kwargs:
                 v = kwargs[k]
+                if prepare_args:
+                    v = self.prepare_value(k, v)
             else:
                 v = getattr(self, k)
             if not allow_none and v is None:
