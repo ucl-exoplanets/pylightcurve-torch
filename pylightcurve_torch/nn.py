@@ -19,7 +19,7 @@ class TransitModule(nn.Module):
 
     def __init__(self, time=None, primary=True, secondary=False, epoch_type=None, precision=3, dtype=torch.float64,
                  **kwargs):
-        """ Creates a pytorch transit model, inheriting torch.nn.Module
+        """ Creates a pytorch transit model class, inheriting torch.nn.Module
 
         The model computes kepler positions, primary and secondary transits flux_drop drops for N different sets of
          parameters and T time steps
@@ -92,14 +92,25 @@ class TransitModule(nn.Module):
         """
         return tuple(self.__shape)
 
-    @property
-    def ldc_dim(self):
+    def get_ldc_dim(self, data=None):
         """ dimensionality of the limb-darkening coefs
 
         :return: int between 1 and 4 (None if no method defined)
         """
         if self.method is not None:
             return self._methods_dim[self.method]
+        elif isinstance(data, torch.Tensor):
+            if len(data.shape) > 1:
+                dim = data.shape[-1]
+                if dim not in list(self._methods_dim.values()):
+                    raise RuntimeError("could not retrieve a correct ldc dimensionality given param's shape")
+            else:
+                warnings.warn("Neither of method nor ldc shape seem to provide a clear ldc dimensionality."
+                              "It is advised to provide either method str arg or 2D-shaped ldc inputs")
+                dim = 1
+            return dim
+
+    ldc_dim = property(get_ldc_dim)
 
     @property
     def rp_over_rs(self):
@@ -207,32 +218,7 @@ class TransitModule(nn.Module):
             if name == "method":
                 self.set_method(value)
                 continue
-            if isinstance(value, nn.Parameter):
-                data = value.data.to(self.dtype)
-            elif isinstance(value, torch.Tensor):
-                data = value.to(self.dtype)
-            else:
-                data = torch.tensor(value, dtype=self.dtype)
-
-            # reshaping
-            dim = 1
-            if name == 'ldc':
-                dim = self.ldc_dim
-                if dim is None:
-                    if len(data.shape) > 1:
-                        dim = data.shape[-1]
-                        if not dim in list(self._methods_dim.values()):
-                            raise RuntimeError("could not retrieve a correct ldc dimensionality given param's shape")
-                    else:
-                        warnings.warn("Neither of method nor ldc shape seem to provide a clear ldc dimensionality."
-                                      "It is advised to provide either method str arg or 2D-shaped ldc inputs")
-                        dim = 1
-            data = data.view(-1, dim)
-            if self.shape[0] in [None, 1]:
-                self.__shape[0] = data.shape[0]
-            elif data.shape[0] > 1 and data.shape[0] != self.shape[0]:
-                raise RuntimeError("incompatible batch dimensions between parameters"
-                                   + f" (module's ({self.shape[0]}) != {name}'s ({data.shape[0]}))")
+            data = self.prepare_value(name, value)
 
             param = nn.Parameter(data, requires_grad=data.requires_grad)
             if getattr(self, name) is None:
@@ -240,6 +226,33 @@ class TransitModule(nn.Module):
             else:
                 getattr(self, name).data = param.data
                 getattr(self, name).requires_grad = data.requires_grad
+
+    def prepare_value(self, name, value):
+        if name == "method":
+            self.check_method(value)
+            return value
+
+        # Conversion to Tensor
+        if isinstance(value, nn.Parameter):
+            data = value.data.to(self.dtype)
+        elif isinstance(value, torch.Tensor):
+            data = value.to(self.dtype)
+        else:
+            data = torch.tensor(value, dtype=self.dtype)
+
+        # Dimensionality
+        if name == 'ldc':
+            dim = self.get_ldc_dim(data)
+        else:
+            dim = 1
+
+        data = data.view(-1, dim)
+        if self.shape[0] in [None, 1]:
+            self.__shape[0] = data.shape[0]
+        elif data.shape[0] > 1 and data.shape[0] != self.shape[0]:
+            raise RuntimeError("incompatible batch dimensions between parameters"
+                               + f" (module's ({self.shape[0]}) != {name}'s ({data.shape[0]}))")
+        return data
 
     def fit_param(self, *args):
         for name in args:
@@ -283,23 +296,32 @@ class TransitModule(nn.Module):
         for name in args:
             self.clear_param(name)
 
-    def set_method(self, value):
-        """ Sets the limb-darkening method
+    def check_method(self, value):
+        """ Checks the limb-darkening method
 
         :param value: one of [None, 'linear', 'sqrt', 'quad', 'claret']
         :return:
         """
         if not (value is None or value in self._methods_dim):
             raise ValueError(f'if stated limb darkening method must be in {tuple(self._methods_dim.keys())}')
-        setattr(self, 'method', value)
         if self.ldc is not None and self.ldc.shape[-1] != self._methods_dim[value]:
             self.set_param(ldc=None)
             warnings.warn('ldc method incompatible with ldc tensor dimension. ldc coefs have been reset.')
 
-    def get_input_params(self, function='none', allow_none=False, **kwargs):
+    def set_method(self, value):
+        """ Sets the limb-darkening method
+
+        :param value: one of [None, 'linear', 'sqrt', 'quad', 'claret']
+        :return:
+        """
+        self.check_method(value)
+        setattr(self, 'method', value)
+
+    def get_input_params(self, function='none', prepare_args=True, allow_none=False, **kwargs):
         """ Returns a dict of model parameters
 
         :param function: which function to provide the params of - 'none', 'position', 'duration', 'drop_p', 'drop_s'
+        :param prepare_args: whether to prepare or not the external arguments to correct type and shape
         :param allow_none: when False, will raise an error if a param is missing
         :param kwargs: parameter names to be given. if None is povided
         :return:
@@ -309,10 +331,12 @@ class TransitModule(nn.Module):
         for k in parlist:
             if k in kwargs:
                 v = kwargs[k]
+                if prepare_args:
+                    v = self.prepare_value(k, v)
             else:
                 v = getattr(self, k)
             if not allow_none and v is None:
-                raise ValueError(f'Parameter {k} should not be missing')
+                raise RuntimeError(f"Parameter '{k}' should not be missing")
             out[k] = v
         return out
 
@@ -324,6 +348,8 @@ class TransitModule(nn.Module):
         # """
         # if self.cache_position and self.__pos is not None and not {k for k in kwargs if k in self.parpos}:
         #     return self.__pos
+        if self.time is None:
+            raise RuntimeError('time attribute needs to be defined')
         d = self.get_input_params(**kwargs, function='position')
         x, y, z = exoplanet_orbit(d['P'], d['a'], d['e'], d['i'], d['w'], d['t0'], self.time,
                                   ww=torch.zeros(1, 1, dtype=self.dtype), n_pars=self.shape[0], dtype=self.dtype)
