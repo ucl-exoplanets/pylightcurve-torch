@@ -171,7 +171,15 @@ class TransitModule(nn.Module):
             self.time = self.time[None, :]
         elif len(self.time.shape) > 2:
             raise ValueError('time array shape must be one of: (T,), (N, T), (1, T)')
+
+        # Updating shape
         self.__shape[1] = self.time.shape[1]
+        if self.shape[0] in [None, 1]:
+            self.__shape[0] = self.time.shape[0]
+        elif self.time.shape[0] > 1 and self.time.shape[0] != self.shape[0]:
+            raise RuntimeError("incompatible batch dimensions between time and parameters"
+                               + f" (module's ({self.shape[0]}) != time's ({self.time.shape[0]}))")
+
         self.time_unit = time_unit
 
     def clear_time(self):

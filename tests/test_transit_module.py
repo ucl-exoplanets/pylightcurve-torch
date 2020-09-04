@@ -89,3 +89,23 @@ def test_transit_params():
             assert isinstance(x, torch.Tensor)
             assert not torch.isnan(x).any()
 
+
+def test_time_tensor():
+    tm = TransitModule(**params_dicts['scalar'])
+    tm.set_time(torch.linspace(0, 10, 100))
+    tm()
+
+    tm.set_time(torch.linspace(0, 10, 100)[None, :].repeat(5, 1))
+    tm()
+
+    tm = TransitModule(**map_dict(pars, lambda x: torch.tensor(x)[None, None].repeat(5, 1)))
+    tm.set_time(torch.linspace(0, 10, 100)[None, :].repeat(5, 1))
+    tm()
+
+    tm = TransitModule(**map_dict(pars, lambda x: torch.tensor(x)[None, None].repeat(5, 1)))
+    try:
+        tm.set_time(torch.linspace(0, 10, 100)[None, :].repeat(6, 1))
+    except RuntimeError:
+        ...  # Caught error
+
+
