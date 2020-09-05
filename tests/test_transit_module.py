@@ -113,3 +113,12 @@ def test_time_tensor():
         ...  # Caught error
 
 
+def test_gradients():
+    tm = TransitModule(time=time_array, **params_dicts['scalar'], secondary=True)
+    for param in tm._parameters:
+        tm.zero_grad()
+        tm.fit_param(param)
+        tm().sum().backward()
+        g = getattr(tm, param).grad
+        assert not torch.isnan(g) and g.item() != 0.
+        tm.freeze_param(param)

@@ -2,7 +2,7 @@ import torch
 
 PI = 3.1415926535897932
 MAX_RATIO_RADII = 1.e12
-EPS = torch.finfo(float).tiny
+EPS = 1.e-16
 MAX_ITERATIONS = 50_000
 ORBIT_PRECISION = 1e-7
 PLC_ALIASES = {'period': 'P', 'inclination': 'i', 'eccentricity': 'e', 'sma_over_rs': 'a', 'rp_over_rs': 'rp',
