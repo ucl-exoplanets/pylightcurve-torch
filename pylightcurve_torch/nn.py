@@ -227,7 +227,7 @@ class TransitModule(nn.Module):
                 getattr(self, name).data = param.data
                 getattr(self, name).requires_grad = data.requires_grad
 
-    def prepare_value(self, name, value):
+    def prepare_value(self, name, value, update_shape=True):
         if name == "method":
             self.check_method(value)
             return value
@@ -247,11 +247,12 @@ class TransitModule(nn.Module):
             dim = 1
 
         data = data.view(-1, dim)
-        if self.shape[0] in [None, 1]:
-            self.__shape[0] = data.shape[0]
-        elif data.shape[0] > 1 and data.shape[0] != self.shape[0]:
-            raise RuntimeError("incompatible batch dimensions between parameters"
-                               + f" (module's ({self.shape[0]}) != {name}'s ({data.shape[0]}))")
+        if update_shape:
+            if self.shape[0] in [None, 1]:
+                self.__shape[0] = data.shape[0]
+            elif data.shape[0] > 1 and data.shape[0] != self.shape[0]:
+                raise RuntimeError("incompatible batch dimensions between parameters"
+                                   + f" (module's ({self.shape[0]}) != {name}'s ({data.shape[0]}))")
         return data
 
     def fit_param(self, *args):
@@ -327,18 +328,27 @@ class TransitModule(nn.Module):
         :return:
         """
         parlist = self._pars_of_fun[function]
+        batch_size = 1
         out = dict()
+        if function in ['dop_p', 'drop_s', 'none']:
+            batch_size = self.time.shape[0]
         for k in parlist:
             if k in kwargs:
                 v = kwargs[k]
                 if prepare_args:
-                    v = self.prepare_value(k, v)
+                    v = self.prepare_value(k, v, update_shape=False)
             else:
                 v = getattr(self, k)
             if not allow_none and v is None:
                 raise RuntimeError(f"Parameter '{k}' should not be missing")
+            if k != 'method' and v.shape[0] > 1:
+                if batch_size == 1:
+                    batch_size = v.shape[0]
+                    # print("batch_size just updated")
+                else:
+                    assert batch_size == v.shape[0]
             out[k] = v
-        return out
+        return out, batch_size
 
     def get_position(self, **kwargs):
         """ Computes the 3D cartesian positions of the planet following a Keplerian orbit
@@ -350,9 +360,9 @@ class TransitModule(nn.Module):
         #     return self.__pos
         if self.time is None:
             raise RuntimeError('time attribute needs to be defined')
-        d = self.get_input_params(**kwargs, function='position')
+        d, batch_size = self.get_input_params(**kwargs, function='position')
         x, y, z = exoplanet_orbit(d['P'], d['a'], d['e'], d['i'], d['w'], d['t0'], self.time,
-                                  ww=torch.zeros(1, 1, dtype=self.dtype), n_pars=self.shape[0], dtype=self.dtype)
+                                  ww=torch.zeros(1, 1, dtype=self.dtype), n_pars=batch_size, dtype=self.dtype)
         # if self.cache_position:
         #     self.__pos = out
         return x * self._pos_factor, y * self._pos_factor, z * self._pos_factor
@@ -380,7 +390,7 @@ class TransitModule(nn.Module):
         """
         # if self.cache_duration and self.__dur is not None and not {k for k in kwargs if k in self.pardur}:
         #     return self.__dur
-        d = self.get_input_params(**kwargs, function='duration')
+        d, batch_size = self.get_input_params(**kwargs, function='duration')
         out = transit_duration(d['rp'], d['P'], d['a'], d['i'], d['e'], d['w'])
         # if self.cache_duration:
         #     self.__dur = out
@@ -399,9 +409,10 @@ class TransitModule(nn.Module):
         #     return self.__flux_p
 
         proj_dist = self.get_proj_dist(**kwargs, restrict_orbit='primary')
-        d = self.get_input_params(**kwargs, function='drop_p')
+        d, batch_size = self.get_input_params(**kwargs, function='drop_p')
+        batch_size = max(batch_size, proj_dist.shape[0])
         out = transit_flux_drop(d['method'], d['ldc'], d['rp'], proj_dist,
-                                precision=self.precision, n_pars=self.shape[0])
+                                precision=self.precision, n_pars=batch_size)
         # if self.cache_flux:
         #     self.__flux_p = out
         return out
@@ -417,10 +428,11 @@ class TransitModule(nn.Module):
         """
         # if self.cache_flux and self.__flux_s is not None and not kwargs:
         #     return self.__flux_s
-        d = self.get_input_params(**kwargs, function='drop_s')
+        d, batch_size = self.get_input_params(**kwargs, function='drop_s')
         proj_dist = self.get_proj_dist(**kwargs, restrict_orbit='secondary') / d['rp']
-        out = transit_flux_drop('linear', torch.zeros(self.shape[0], 1), 1 / d['rp'], proj_dist,
-                                precision=self.precision, n_pars=self.shape[0])
+        batch_size = max(batch_size, proj_dist.shape[0])
+        out = transit_flux_drop('linear', torch.zeros(batch_size, 1), 1 / d['rp'], proj_dist,
+                                precision=self.precision, n_pars=batch_size)
         out = (1. + d['fp'] * out) / (1. + d['fp'])
         # if self.cache_flux:
         #     self.__flux_s = out
