@@ -162,34 +162,33 @@ class TransitModule(nn.Module):
             key = PLC_ALIASES[key]
         super().__setattr__(key, value)
 
-    def set_time(self, time, time_unit=None):
+    def set_time(self, data, time_unit=None):
         """ Sets the tensor of time values
 
         the input time vector will be converted to a detached tensor
 
-        :param time: array-like time series of time values. Shape: (T,) or (N, T)
+        :param data: array-like time series of time values. Shape: (T,) or (N, T)
         :param time_unit: time unit for record (optional)
         :return: None
         """
-        if time is None:
-            raise ValueError("time musn't be None. For clearing the time array use clear_time method")
-        if not isinstance(time, torch.Tensor):
-            time = torch.tensor(time)
-        self.time = time.detach().to(self.dtype)
-        if len(self.time.shape) == 0:
-            raise ValueError('time input must be a sized iterable object')
-        if len(self.time.shape) == 1:
-            self.time = self.time[None, :]
-        elif len(self.time.shape) > 2:
-            raise ValueError('time array shape must be one of: (T,), (N, T), (1, T)')
-
+        if data is None:
+            raise ValueError("data musn't be None. For clearing the data array use clear_time method")
+        if not isinstance(data, torch.Tensor):
+            data = torch.tensor(data)
+        if len(data.shape) == 0:
+            raise ValueError('data input must be a sized iterable object')
+        if len(data.shape) == 1:
+            data = data[None, :]
+        elif len(data.shape) > 2:
+            raise ValueError('data array shape must be one of: (T,), (N, T), (1, T)')
+        setattr(self, 'time', nn.Parameter(data.detach().to(self.dtype), requires_grad=False))
         # Updating shape
         self.__shape[1] = self.time.shape[1]
         if self.shape[0] in [None, 1]:
             self.__shape[0] = self.time.shape[0]
         elif self.time.shape[0] > 1 and self.time.shape[0] != self.shape[0]:
-            raise RuntimeError("incompatible batch dimensions between time and parameters"
-                               + f" (module's ({self.shape[0]}) != time's ({self.time.shape[0]}))")
+            raise RuntimeError("incompatible batch dimensions between data and parameters"
+                               + f" (module's ({self.shape[0]}) != data's ({self.time.shape[0]}))")
 
         self.time_unit = time_unit
 
