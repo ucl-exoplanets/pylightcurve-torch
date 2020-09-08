@@ -18,7 +18,7 @@ class TransitModule(nn.Module):
                     'drop_s': {'fp', 'rp'}}
 
     def __init__(self, time=None, primary=True, secondary=False, epoch_type=None, precision=3, dtype=torch.float64,
-                 cache_pos=True, cache_flux=True, cache_dur=True, **kwargs):
+                 cache_pos=False, cache_flux=False, cache_dur=False, **kwargs):
         """ Creates a pytorch transit model class, inheriting torch.nn.Module
 
         The model computes kepler positions, primary and secondary transits flux_drop drops for N different sets of

@@ -1,3 +1,5 @@
+import warnings
+import pytest
 import numpy as np
 import torch
 
@@ -120,7 +122,7 @@ def test_time_tensor():
 
 
 def test_gradients():
-    tm = TransitModule(time=time_array, **params_dicts['scalar'], secondary=True)
+    tm = TransitModule(time=time_array, **params_dicts['scalar'], secondary=True, cache_pos=False)
     for param in tm._parameters:
         if param == 'time':
             continue
@@ -130,3 +132,9 @@ def test_gradients():
         g = getattr(tm, param).grad
         assert not torch.isnan(g) and g.item() != 0.
         tm.freeze_param(param)
+
+
+def test_cache():
+    tm = TransitModule(time=time_array, **params_dicts['scalar'], secondary=True, cache_pos=True)
+    with pytest.warns(UserWarning):
+         tm.fit_param('P')
