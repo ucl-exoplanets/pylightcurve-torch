@@ -53,11 +53,13 @@ class TransitModule(nn.Module):
             except AssertionError:
                 raise ValueError("epoch_type should be one of: 'primary', 'secondary' ")
         self.precision = precision
-
         if dtype is None:
             self.dtype = torch.get_default_dtype()
         else:
             self.dtype = dtype
+        self.cache_pos = cache_pos
+        self.cache_flux = cache_flux
+        self.cache_dur = cache_dur
 
         self.__shape = [None, None]
         self.method = None
@@ -71,10 +73,6 @@ class TransitModule(nn.Module):
         self.time_unit = None
         if time is not None:
             self.set_time(time)
-
-        self.cache_pos = cache_pos
-        self.cache_flux = cache_flux
-        self.cache_dur = cache_dur
 
         self.__pos = None
         self.__dur = None
@@ -275,6 +273,22 @@ class TransitModule(nn.Module):
                 warnings.warn("param is None, its grad can't be activated")
             else:
                 param.requires_grad = True
+                if name in self._pars_of_fun['duration']:
+                    self.__dur = None
+                    if self.cache_dur:
+                        warnings.warn('duration caching deactivated because of its inclusion in the DCG')
+                    self.cache_dur = False
+                if name in self._pars_of_fun['position']:
+                    if self.cache_pos:
+                        warnings.warn('position caching deactivated because of its inclusion in the DCG')
+                    self.__pos = None
+                    self.cache_pos = False
+                if name in self._pars_of_fun['drop_p'].union(self._pars_of_fun['drop_s']):
+                    self.__flux_p = None
+                    self.__flux_s = None
+                    if self.cache_flux:
+                        warnings.warn('flux drop caching deactivated because of its inclusion in the DCG')
+                    self.cache_flux = False
 
     def freeze_param(self, *args):
         for name in args:
@@ -410,11 +424,11 @@ class TransitModule(nn.Module):
         :return:
         """
         ext_provided = {k for k in kwargs if k in self._pars_of_fun['duration']}
-        if self.cache_duration and self.__dur is not None and not ext_provided:
+        if self.cache_dur and self.__dur is not None and not ext_provided:
             return self.__dur
         d, batch_size = self.get_input_params(**kwargs, function='duration')
         out = transit_duration(d['rp'], d['P'], d['a'], d['i'], d['e'], d['w'])
-        if self.cache_duration:
+        if self.cache_dur:
             self.__dur = out
         return out
 
