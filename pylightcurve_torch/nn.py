@@ -232,12 +232,11 @@ class TransitModule(nn.Module):
                 continue
             data = self.prepare_value(name, value)
 
-            param = nn.Parameter(data, requires_grad=data.requires_grad)
             if getattr(self, name) is None:
-                self.__setattr__(name, param)
+                self.__setattr__(name, nn.Parameter(data))
             else:
-                getattr(self, name).data = param.data
-                getattr(self, name).requires_grad = data.requires_grad
+                getattr(self, name).data = data
+            self.fit_param(name)
 
     def prepare_value(self, name, value, update_shape=True):
         if name == "method":
