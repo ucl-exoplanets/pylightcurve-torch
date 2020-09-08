@@ -54,9 +54,14 @@ def test_transit_type():
 def test_pytorch_inherited_attr():
     tm = TransitModule()
     tm.set_param(e=0.)
+    tm.set_time(range(10))
 
-    assert tm.float().e.dtype == torch.float32
-    assert tm.double().e.dtype == torch.float64
+    tm.float()
+    assert tm.e.dtype == torch.float32
+    assert tm.time.dtype == torch.float32
+    tm.double()
+    assert tm.e.dtype == torch.float64
+    assert tm.time.dtype == torch.float64
 
     assert tm.to('cpu').e.device.type == 'cpu'
     if torch.cuda.is_available():
@@ -94,6 +99,7 @@ def test_transit_params():
         flux_2 = tm(**d)
         assert torch.isclose(flux_1, flux_2).all()
 
+
 def test_time_tensor():
     tm = TransitModule(**params_dicts['scalar'])
     tm.set_time(torch.linspace(0, 10, 100))
@@ -116,6 +122,8 @@ def test_time_tensor():
 def test_gradients():
     tm = TransitModule(time=time_array, **params_dicts['scalar'], secondary=True)
     for param in tm._parameters:
+        if param == 'time':
+            continue
         tm.zero_grad()
         tm.fit_param(param)
         tm().sum().backward()
