@@ -33,6 +33,15 @@ class TransitModule(nn.Module):
         :param precision:  (type: int ; default: 3)
         :param dtype: tensors dtype (default: torch.float64) If None provided, the environment default torch dtype will
             be used.
+        :param cache_pos: whether or not to save the position tensors for efficiency. Note that this requires it to be
+            outside of the Dynamic Computational Graph, and will be set to False with a warning as soon as a dependable
+            parameter has its gradient activated.
+        :param cache_flux: whether or not to save the flux decrements tensors for efficiency. Note that this requires it to be
+            outside of the Dynamic Computational Graph, and will be set to False with a warning as soon as a dependable
+            parameter has its gradient activated.
+        :param cache_dur: whether or not to save the duration tensors for efficiency. Note that this requires it to be
+            outside of the Dynamic Computational Graph, and will be set to False with a warning as soon as a dependable
+            parameter has its gradient activated.
         :param kwargs: additional optional parameters. If given these must be named like transit params
         """
         super().__init__()
@@ -206,6 +215,10 @@ class TransitModule(nn.Module):
         self.__pos = None
 
     def clear_cache(self):
+        """ Resets all the cache hidden attributes to None
+
+        :return:
+        """
         self.__pos = None
         self.__flux_p = None
         self.__flux_s = None
@@ -266,6 +279,12 @@ class TransitModule(nn.Module):
         return data
 
     def fit_param(self, *args):
+        """ Activates the gradient for each of the parameter provided
+        This will also deactivate and reset the cache for the dependent tensors, with a possible warning if applicable.
+
+        :param args:
+        :return:
+        """
         for name in args:
             if name not in self._authorised_parnames:
                 raise RuntimeError(f"parameter {name} not in authorized model's list")
@@ -387,8 +406,9 @@ class TransitModule(nn.Module):
         return out, batch_size
 
     def get_position(self, **kwargs):
-        """ Computes the 3D cartesian positions of the planet following a Keplerian orbit
+        """ Computes the cached or computed 3D cartesian positions of the planet following a Keplerian orbit
         if any model parameter is provided while calling this method, no caching will take place
+
         :param kwargs:
         :return: tuple of position arrays x, y, z, each of shape (N, T)
         # """
