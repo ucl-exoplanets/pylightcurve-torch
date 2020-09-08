@@ -234,7 +234,8 @@ class TransitModule(nn.Module):
                 self.__setattr__(name, nn.Parameter(data))
             else:
                 getattr(self, name).data = data
-            self.fit_param(name)
+            if data.requires_grad:
+                self.fit_param(name)
 
     def prepare_value(self, name, value, update_shape=True):
         if name == "method":
