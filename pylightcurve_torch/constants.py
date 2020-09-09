@@ -244,3 +244,4 @@ gauss60 = torch.tensor([
 gauss_table = [torch.transpose(gauss0, 0, 1), torch.transpose(gauss10, 0, 1), torch.transpose(gauss20, 0, 1),
                torch.transpose(gauss30, 0, 1), torch.transpose(gauss40, 0, 1), torch.transpose(gauss50, 0, 1),
                torch.transpose(gauss60, 0, 1)]
+
