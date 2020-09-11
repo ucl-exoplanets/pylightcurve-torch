@@ -289,6 +289,29 @@ class TransitModule(nn.Module):
                                    + f" (module's ({self.shape[0]}) != {name}'s ({data.shape[0]}))")
         return data
 
+    def update_cache(self, name):
+        """ selectively resets the appropriate cached tensors
+
+        :param name: parameter name from which to selectively infer the dependent cached tensors
+        :return:
+        """
+        if name in self._pars_of_fun['duration']:
+            self.__dur = None
+            if self.cache_dur:
+                warnings.warn('duration caching deactivated because of its inclusion in the DCG')
+            self.cache_dur = False
+        if name in self._pars_of_fun['position']:
+            if self.cache_pos:
+                warnings.warn('position caching deactivated because of its inclusion in the DCG')
+            self.__pos = None
+            self.cache_pos = False
+        if name in self._pars_of_fun['drop_p'].union(self._pars_of_fun['drop_s']):
+            self.__flux_p = None
+            self.__flux_s = None
+            if self.cache_flux:
+                warnings.warn('flux drop caching deactivated because of its inclusion in the DCG')
+            self.cache_flux = False
+
     def fit_param(self, *args):
         """ Activates the gradient for each of the parameter provided
         This will also deactivate and reset the cache for the dependent tensors, with a possible warning if applicable.
@@ -304,22 +327,7 @@ class TransitModule(nn.Module):
                 warnings.warn("param is None, its grad can't be activated")
             else:
                 param.requires_grad = True
-                if name in self._pars_of_fun['duration']:
-                    self.__dur = None
-                    if self.cache_dur:
-                        warnings.warn('duration caching deactivated because of its inclusion in the DCG')
-                    self.cache_dur = False
-                if name in self._pars_of_fun['position']:
-                    if self.cache_pos:
-                        warnings.warn('position caching deactivated because of its inclusion in the DCG')
-                    self.__pos = None
-                    self.cache_pos = False
-                if name in self._pars_of_fun['drop_p'].union(self._pars_of_fun['drop_s']):
-                    self.__flux_p = None
-                    self.__flux_s = None
-                    if self.cache_flux:
-                        warnings.warn('flux drop caching deactivated because of its inclusion in the DCG')
-                    self.cache_flux = False
+                self.update_cache(name)
 
     def freeze_param(self, *args):
         for name in args:
@@ -340,16 +348,7 @@ class TransitModule(nn.Module):
         if name not in self._authorised_parnames:
             raise RuntimeError(f"parameter {name} not in authorized model's list")
         setattr(self, name, None)
-
-        if self.cache_flux:
-            if name in self._pars_of_fun['drop_p']:
-                self.__flux_p = None
-            if name in self._pars_of_fun['drop_s']:
-                self.__flux_s = None
-        if self.cache_dur and name in self._pars_of_fun['duration']:
-            self.__dur = None
-        if self.cache_pos and name in self._pars_of_fun['position']:
-            self.__pos = None
+        self.update_cache(name)
 
     def clear_params(self, *args):
         """ Resets several parameters to None value
