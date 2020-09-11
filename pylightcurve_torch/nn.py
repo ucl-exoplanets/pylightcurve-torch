@@ -244,7 +244,7 @@ class TransitModule(nn.Module):
             data = self.prepare_value(name, value)
 
             if getattr(self, name) is None:
-                self.__setattr__(name, nn.Parameter(data))
+                self.__setattr__(name, nn.Parameter(data, requires_grad=False))
             else:
                 getattr(self, name).data = data
             if data.requires_grad:
@@ -261,7 +261,7 @@ class TransitModule(nn.Module):
         elif isinstance(value, torch.Tensor):
             data = value.to(self.dtype)
         else:
-            data = torch.tensor(value, dtype=self.dtype)
+            data = torch.tensor(value, dtype=self.dtype, requires_grad=False)
 
         # Dimensionality
         if name == 'ldc':
