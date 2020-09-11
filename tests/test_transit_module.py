@@ -87,7 +87,7 @@ def test_transit_params():
             assert p == 'method' or getattr(tm, p).data.dtype == torch.float64
         assert tm.time.dtype == torch.float64
 
-        tm.clear_params()
+        tm.reset_params()
         attr = np.random.choice(list(tm._parnames))
         assert getattr(tm, attr) is None
         tm.set_params(**d)

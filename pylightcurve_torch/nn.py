@@ -337,7 +337,7 @@ class TransitModule(nn.Module):
             else:
                 param.requires_grad = False
 
-    def clear_param(self, name):
+    def reset_param(self, name):
         """ Resets a param to None value
 
         :param name: parameter name (str)
@@ -348,7 +348,7 @@ class TransitModule(nn.Module):
         setattr(self, name, None)
         self.reset_cache(name)
 
-    def clear_params(self, *args):
+    def reset_params(self, *args):
         """ Resets several parameters to None value
 
         :param args: list of parameters names. If None is provided, all the parameters will be reset
@@ -358,7 +358,7 @@ class TransitModule(nn.Module):
             args = self._parnames
             self.__shape[0] = None
         for name in args:
-            self.clear_param(name)
+            self.reset_param(name)
 
     def check_method(self, value):
         """ Checks the limb-darkening method
@@ -369,7 +369,7 @@ class TransitModule(nn.Module):
         if not (value is None or value in self._methods_dim):
             raise ValueError(f'if stated limb darkening method must be in {tuple(self._methods_dim.keys())}')
         if self.ldc is not None and self.ldc.shape[-1] != self._methods_dim[value]:
-            self.set_param('ldc', None)
+            self.reset_param('ldc')
             warnings.warn('ldc method incompatible with ldc tensor dimension. ldc coefs have been reset.')
 
     def set_method(self, value):
