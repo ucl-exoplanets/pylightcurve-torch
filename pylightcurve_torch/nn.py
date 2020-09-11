@@ -329,11 +329,19 @@ class TransitModule(nn.Module):
         parlist = self._pars_of_fun[function]
         batch_size = 1
         out = dict()
+        ext_args = dict()
+        # External arguments aliases
+        for k in kwargs:
+            if k in PLC_ALIASES:
+                parname = PLC_ALIASES[k]
+            else:
+                parname = k
+            ext_args[parname] = kwargs[k]
         if function in ['dop_p', 'drop_s', 'none']:
             batch_size = self.time.shape[0]
         for k in parlist:
-            if k in kwargs:
-                v = kwargs[k]
+            if k in ext_args:
+                v = ext_args[k]
                 if prepare_args:
                     v = self.prepare_value(k, v, update_shape=False)
             else:

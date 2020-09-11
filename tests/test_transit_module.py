@@ -2,6 +2,7 @@ import numpy as np
 import torch
 
 from pylightcurve_torch.nn import TransitModule
+from pylightcurve_torch.constants import PLC_ALIASES
 
 pars = {'method': "linear", 'rp': 0.0241, 'fp': 0.00001, 'P': 7.8440, 'a': 5.4069, 'e': 0.3485, 'i': 91.8170,
         'w': 77.9203, 't0': 5.1814, 'ldc': 0.1}
@@ -17,6 +18,7 @@ params_dicts = {'scalar': pars,
                 'tensor_1': map_dict(pars, lambda x: torch.tensor(x)[None]),
                 'tensor_2': map_dict(pars, lambda x: torch.tensor(x)[None, None]),
                 'tensor_3': map_dict(pars, lambda x: torch.tensor(x)[None, None, None]),
+                "tensor_grad": map_dict(pars, lambda x: torch.tensor(x)[None, None].requires_grad_()),
                 'plc': {'method': "linear", 'rp_over_rs': 0.0241, 'period': 7.8440, 'fp_over_fs': 0.00001,
                         'sma_over_rs': 5.4069, 'eccentricity': 0.3485, 'inclination': 91.8170,
                         'periastron': 77.9203, 'mid_time': 5.1814, 'limb_darkening_coefficients': 0.5}
@@ -120,13 +122,31 @@ def test_time_tensor():
 
 
 def test_gradients():
+    print('starting to test gradients')
     tm = TransitModule(time=time_array, **params_dicts['scalar'], secondary=True)
-    for param in tm._parameters:
+    for param in list(tm._parameters.keys()) + ['rp_over_rs']:
         if param == 'time':
             continue
         tm.zero_grad()
         tm.fit_param(param)
-        tm().sum().backward()
+        assert getattr(tm, param).requires_grad
+        flux = tm()
+        assert flux.requires_grad
+        flux.sum().backward()
         g = getattr(tm, param).grad
         assert not torch.isnan(g) and g.item() != 0.
         tm.freeze_param(param)
+        assert not getattr(tm, param).requires_grad
+
+        # external argument
+        if param in tm._parnames:
+            value = torch.tensor(pars[param], requires_grad=True)
+        elif param in PLC_ALIASES:
+            value = torch.tensor(pars[PLC_ALIASES[param]], requires_grad=True)
+        assert value.requires_grad
+        flux = tm(**{param: value})
+        assert flux.requires_grad
+        assert not getattr(tm, param).requires_grad
+        flux.sum().backward()
+        g = getattr(tm, param).grad
+        assert not torch.isnan(g) and g.item() != 0.
