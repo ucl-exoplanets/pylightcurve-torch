@@ -9,8 +9,8 @@ from .functional import exoplanet_orbit, transit_duration, transit_flux_drop
 
 
 class TransitModule(nn.Module):
-    _parnames = {'method', 'P', 'i', 'e', 'a', 'rp', 'fp', 't0', 'w', 'ldc'}
-    _authorised_parnames = _parnames.union(set(PLC_ALIASES.keys()))
+    _parnames = ['method', 'P', 'i', 'e', 'a', 'rp', 'fp', 't0', 'w', 'ldc']
+    _authorised_parnames = _parnames + list(PLC_ALIASES.keys())
     _methods_dim = {'linear': 1, 'sqrt': 2, 'quad': 2, 'claret': 4}
     _pars_of_fun = {'position': {'P', 'i', 'e', 'a', 't0', 'w'},
                     'duration': {'i', 'rp', 'P', 'a', 'i', 'e', 'w'},
@@ -265,7 +265,7 @@ class TransitModule(nn.Module):
             data = torch.tensor(value, dtype=self.dtype, requires_grad=False)
 
         # Dimensionality
-        if name == 'ldc':
+        if name == 'ldc' or (name in PLC_ALIASES and PLC_ALIASES[name] == 'ldc'):
             dim = self.get_ldc_dim(data)
         else:
             dim = 1
