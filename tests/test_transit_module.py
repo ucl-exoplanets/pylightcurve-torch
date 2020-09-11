@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 import torch
+import timeit
 
 from pylightcurve_torch.nn import TransitModule
 from pylightcurve_torch.constants import PLC_ALIASES
@@ -152,7 +153,13 @@ def test_gradients():
 
 
 def test_cache():
-    tm = TransitModule(time=time_array, **params_dicts['scalar'], secondary=True, cache_pos=True)
+    tm = TransitModule(time=time_array, **params_dicts['scalar'], secondary=True)
+    tm_cache = TransitModule(time=time_array, **params_dicts['scalar'], secondary=True, cache_pos=True)
+
+    time = timeit.timeit(lambda: tm.get_position(), number=20)
+    time_cache = timeit.timeit(lambda: tm_cache.get_position(), number=20)
+    assert time_cache < time / 5
     with pytest.warns(UserWarning):
-         tm.fit_param('P')
+        tm_cache.fit_param('P')
+    assert not tm_cache.cache_pos
 
