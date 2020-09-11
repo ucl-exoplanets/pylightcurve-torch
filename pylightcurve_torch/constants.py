@@ -1,12 +1,14 @@
 import torch
+from collections import OrderedDict
 
 PI = 3.1415926535897932
 MAX_RATIO_RADII = 1.e12
 EPS = 1.e-16
 MAX_ITERATIONS = 50_000
 ORBIT_PRECISION = 1e-7
-PLC_ALIASES = {'period': 'P', 'inclination': 'i', 'eccentricity': 'e', 'sma_over_rs': 'a', 'rp_over_rs': 'rp',
-               'fp_over_fs': 'fp', 'mid_time': 't0', 'periastron': 'w', 'limb_darkening_coefficients': 'ldc'}
+PLC_ALIASES = OrderedDict({'period': 'P', 'inclination': 'i', 'eccentricity': 'e', 'sma_over_rs': 'a',
+                           'rp_over_rs': 'rp', 'fp_over_fs': 'fp', 'mid_time': 't0', 'periastron': 'w',
+                           'limb_darkening_coefficients': 'ldc'})
 
 gauss0 = torch.tensor([
     [1.0000000000000000, -0.5773502691896257],

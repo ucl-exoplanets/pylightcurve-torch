@@ -56,7 +56,7 @@ def test_transit_type():
 
 def test_pytorch_inherited_attr():
     tm = TransitModule()
-    tm.set_param(e=0.)
+    tm.set_param("e", 0.)
     tm.set_time(range(10))
 
     tm.float()
@@ -87,10 +87,10 @@ def test_transit_params():
             assert p == 'method' or getattr(tm, p).data.dtype == torch.float64
         assert tm.time.dtype == torch.float64
 
-        tm.clear_params()
+        tm.reset_params()
         attr = np.random.choice(list(tm._parnames))
         assert getattr(tm, attr) is None
-        tm.set_param(**d)
+        tm.set_params(**d)
 
         tm.position
         for i, x in enumerate([tm.proj_dist,  tm.flux_drop, tm.forward(), tm()]):
@@ -101,6 +101,21 @@ def test_transit_params():
         # External arguments
         flux_2 = tm(**d)
         assert torch.isclose(flux_1, flux_2).all()
+
+
+def test_ldc_methods():
+    pars_ldc = {'linear': np.random.rand(1),
+                'sqrt': np.random.rand(2)[None, :],
+                'quad': np.random.rand(2)[None, :],
+                'claret': np.random.rand(4)[None, :]}
+    tm = TransitModule(**params_dicts['scalar'], time=time_tensor)
+    for method in ['linear', 'sqrt', 'quad', 'claret']:
+        ldc = pars_ldc[method][None, :]
+        tm.set_method(method)
+        tm.set_param('ldc', ldc)
+        tm.position
+        tm.get_flux_s()
+        tm()
 
 
 def test_time_tensor():

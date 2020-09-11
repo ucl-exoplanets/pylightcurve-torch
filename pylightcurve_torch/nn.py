@@ -9,8 +9,8 @@ from .functional import exoplanet_orbit, transit_duration, transit_flux_drop
 
 
 class TransitModule(nn.Module):
-    _parnames = {'method', 'P', 'i', 'e', 'a', 'rp', 'fp', 't0', 'w', 'ldc'}
-    _authorised_parnames = _parnames.union(set(PLC_ALIASES.keys()))
+    _parnames = ['method', 'P', 'i', 'e', 'a', 'rp', 'fp', 't0', 'w', 'ldc']
+    _authorised_parnames = _parnames + list(PLC_ALIASES.keys())
     _methods_dim = {'linear': 1, 'sqrt': 2, 'quad': 2, 'claret': 4}
     _pars_of_fun = {'position': {'P', 'i', 'e', 'a', 't0', 'w'},
                     'duration': {'i', 'rp', 'P', 'a', 'i', 'e', 'w'},
@@ -76,7 +76,7 @@ class TransitModule(nn.Module):
             if name != 'method':
                 self.__setattr__(name, None)
         if kwargs:
-            self.set_param(**kwargs)
+            self.set_params(**kwargs)
 
         self.time = None
         self.time_unit = None
@@ -214,18 +214,8 @@ class TransitModule(nn.Module):
         self.__flux_s = None
         self.__pos = None
 
-    def clear_cache(self):
-        """ Resets all the cache hidden attributes to None
-
-        :return:
-        """
-        self.__pos = None
-        self.__flux_p = None
-        self.__flux_s = None
-        self.__dur = None
-
-    def set_param(self, **kwargs):
-        """ sets or updates transit parameters values
+    def set_params(self, **kwargs):
+        """ sets or updates transit parameters values as key/value pairs
         Parameters are accessible as class attributes.
         Except method, all params are torch tensor parameters
 
@@ -235,20 +225,31 @@ class TransitModule(nn.Module):
         if not kwargs:
             warnings.warn('no parameter provided')
         for name, value in kwargs.items():
-            if name not in self._authorised_parnames:
-                raise RuntimeError(f"parameter {name} not in authorized model's list")
+            self.set_param(name, value)
 
-            if name == "method":
-                self.set_method(value)
-                continue
-            data = self.prepare_value(name, value)
+    def set_param(self, name, value):
+        """ Set or updates a transit parameter by name and value
 
-            if getattr(self, name) is None:
-                self.__setattr__(name, nn.Parameter(data, requires_grad=False))
-            else:
-                getattr(self, name).data = data
-            if data.requires_grad:
-                self.fit_param(name)
+        Parameter will be defined as a class Attribute, most specifically a nn.Parameter except for 'method' which
+        is just a str.
+        :param name: nme of the param (or alias)
+        :param value: value of the param
+        :return:
+        """
+        if name not in self._authorised_parnames:
+            raise RuntimeError(f"parameter {name} not in authorized model's list")
+
+        if name == "method":
+            self.set_method(value)
+            return
+        data = self.prepare_value(name, value)
+
+        if getattr(self, name) is None:
+            self.__setattr__(name, nn.Parameter(data, requires_grad=False))
+        else:
+            getattr(self, name).data = data
+        if data.requires_grad:
+            self.fit_param(name)
 
     def prepare_value(self, name, value, update_shape=True):
         if name == "method":
@@ -264,7 +265,7 @@ class TransitModule(nn.Module):
             data = torch.tensor(value, dtype=self.dtype, requires_grad=False)
 
         # Dimensionality
-        if name == 'ldc':
+        if name == 'ldc' or (name in PLC_ALIASES and PLC_ALIASES[name] == 'ldc'):
             dim = self.get_ldc_dim(data)
         else:
             dim = 1
@@ -277,6 +278,37 @@ class TransitModule(nn.Module):
                 raise RuntimeError("incompatible batch dimensions between parameters"
                                    + f" (module's ({self.shape[0]}) != {name}'s ({data.shape[0]}))")
         return data
+
+    def reset_cache(self, name=None):
+        """ Resets the appropriate cached tensors.
+
+        Cached tensors are reset to None value, selectively if a parameter name is given.
+        :param name: parameter name from which to selectively infer the dependent cached tensors. If no name provided
+            ('default'), all the cached tensors will be reset (to None).
+        :return:
+        """
+        if name is None:
+            self.__pos = None
+            self.__flux_p = None
+            self.__flux_s = None
+            self.__dur = None
+            return
+        if name in self._pars_of_fun['duration']:
+            self.__dur = None
+            if self.cache_dur:
+                warnings.warn('duration caching deactivated because of its inclusion in the DCG')
+            self.cache_dur = False
+        if name in self._pars_of_fun['position']:
+            if self.cache_pos:
+                warnings.warn('position caching deactivated because of its inclusion in the DCG')
+            self.__pos = None
+            self.cache_pos = False
+        if name in self._pars_of_fun['drop_p'].union(self._pars_of_fun['drop_s']):
+            self.__flux_p = None
+            self.__flux_s = None
+            if self.cache_flux:
+                warnings.warn('flux drop caching deactivated because of its inclusion in the DCG')
+            self.cache_flux = False
 
     def fit_param(self, *args):
         """ Activates the gradient for each of the parameter provided
@@ -293,22 +325,7 @@ class TransitModule(nn.Module):
                 warnings.warn("param is None, its grad can't be activated")
             else:
                 param.requires_grad = True
-                if name in self._pars_of_fun['duration']:
-                    self.__dur = None
-                    if self.cache_dur:
-                        warnings.warn('duration caching deactivated because of its inclusion in the DCG')
-                    self.cache_dur = False
-                if name in self._pars_of_fun['position']:
-                    if self.cache_pos:
-                        warnings.warn('position caching deactivated because of its inclusion in the DCG')
-                    self.__pos = None
-                    self.cache_pos = False
-                if name in self._pars_of_fun['drop_p'].union(self._pars_of_fun['drop_s']):
-                    self.__flux_p = None
-                    self.__flux_s = None
-                    if self.cache_flux:
-                        warnings.warn('flux drop caching deactivated because of its inclusion in the DCG')
-                    self.cache_flux = False
+                self.reset_cache(name)
 
     def freeze_param(self, *args):
         for name in args:
@@ -320,7 +337,7 @@ class TransitModule(nn.Module):
             else:
                 param.requires_grad = False
 
-    def clear_param(self, name):
+    def reset_param(self, name):
         """ Resets a param to None value
 
         :param name: parameter name (str)
@@ -329,18 +346,9 @@ class TransitModule(nn.Module):
         if name not in self._authorised_parnames:
             raise RuntimeError(f"parameter {name} not in authorized model's list")
         setattr(self, name, None)
+        self.reset_cache(name)
 
-        if self.cache_flux:
-            if name in self._pars_of_fun['drop_p']:
-                self.__flux_p = None
-            if name in self._pars_of_fun['drop_s']:
-                self.__flux_s = None
-        if self.cache_dur and name in self._pars_of_fun['duration']:
-            self.__dur = None
-        if self.cache_pos and name in self._pars_of_fun['position']:
-            self.__pos = None
-
-    def clear_params(self, *args):
+    def reset_params(self, *args):
         """ Resets several parameters to None value
 
         :param args: list of parameters names. If None is provided, all the parameters will be reset
@@ -350,7 +358,7 @@ class TransitModule(nn.Module):
             args = self._parnames
             self.__shape[0] = None
         for name in args:
-            self.clear_param(name)
+            self.reset_param(name)
 
     def check_method(self, value):
         """ Checks the limb-darkening method
@@ -361,7 +369,7 @@ class TransitModule(nn.Module):
         if not (value is None or value in self._methods_dim):
             raise ValueError(f'if stated limb darkening method must be in {tuple(self._methods_dim.keys())}')
         if self.ldc is not None and self.ldc.shape[-1] != self._methods_dim[value]:
-            self.set_param(ldc=None)
+            self.reset_param('ldc')
             warnings.warn('ldc method incompatible with ldc tensor dimension. ldc coefs have been reset.')
 
     def set_method(self, value):
