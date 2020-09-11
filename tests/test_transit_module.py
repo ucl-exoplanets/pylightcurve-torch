@@ -103,6 +103,18 @@ def test_transit_params():
         assert torch.isclose(flux_1, flux_2).all()
 
 
+def test_ldc_methods():
+    pars_ldc = {'linear': np.random.rand(1),
+                'sqrt': np.random.rand(2),
+                'quad': np.random.rand(2),
+                'claret': np.random.rand(4)}
+    tm = TransitModule(**params_dicts['scalar'], time=time_tensor)
+    for method in ['linear', 'sqrt', 'quad', 'claret']:
+        ldc = pars_ldc[method][None, :]
+        tm.set_method(method)
+        tm.set_param('ldc', ldc)
+
+
 def test_time_tensor():
     tm = TransitModule(**params_dicts['scalar'])
     tm.set_time(torch.linspace(0, 10, 100))
