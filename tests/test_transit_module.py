@@ -105,14 +105,17 @@ def test_transit_params():
 
 def test_ldc_methods():
     pars_ldc = {'linear': np.random.rand(1),
-                'sqrt': np.random.rand(2),
-                'quad': np.random.rand(2),
-                'claret': np.random.rand(4)}
+                'sqrt': np.random.rand(2)[None, :],
+                'quad': np.random.rand(2)[None, :],
+                'claret': np.random.rand(4)[None, :]}
     tm = TransitModule(**params_dicts['scalar'], time=time_tensor)
     for method in ['linear', 'sqrt', 'quad', 'claret']:
         ldc = pars_ldc[method][None, :]
         tm.set_method(method)
         tm.set_param('ldc', ldc)
+        tm.position
+        tm.get_flux_s()
+        tm()
 
 
 def test_time_tensor():
