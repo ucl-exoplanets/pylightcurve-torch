@@ -368,22 +368,27 @@ def transit_flux_drop(method, limb_darkening_coefficients, rp_over_rs, z_over_rs
 
 
 def transit(method, limb_darkening_coefficients, rp_over_rs, period, sma_over_rs, eccentricity, inclination, periastron,
-            mid_time, time_array, precision=3):
-    x, y, z = exoplanet_orbit(period, sma_over_rs, eccentricity, inclination, periastron, mid_time, time_array)
-    projected_distance = torch.where(x < 0., MAX_RATIO_RADII, torch.sqrt(y ** 2 + z ** 2))
+            mid_time, time_array, precision=3, n_pars=None, dtype=torch.float64):
+    x, y, z = exoplanet_orbit(period, sma_over_rs, eccentricity, inclination, periastron, mid_time, time_array,
+                              n_pars=n_pars, dtype=dtype)
+    projected_distance = torch.where(x < 0., torch.ones_like(x, device=x.device, dtype=dtype) * MAX_RATIO_RADII,
+                                     torch.sqrt(y ** 2 + z ** 2))
 
-    return transit_flux_drop(method, limb_darkening_coefficients, rp_over_rs, projected_distance, precision=precision)
+    return transit_flux_drop(method, limb_darkening_coefficients, rp_over_rs, projected_distance, precision=precision,
+                             n_pars=n_pars)
 
 
 def eclipse(fp_over_fs, rp_over_rs, period, sma_over_rs, eccentricity, inclination, periastron, mid_time, time_array,
-            precision=3):
+            precision=3, n_pars=None, dtype=torch.float64):
     x, y, z = exoplanet_orbit(period, - sma_over_rs / rp_over_rs, eccentricity, inclination, periastron,
-                              mid_time, time_array)
-    projected_distance = torch.where(x < 0, MAX_RATIO_RADII, y ** 2 + z ** 2)
-    n_pars = max(projected_distance.shape[0], fp_over_fs.shape[0] if isinstance(fp_over_fs, torch.Tensor) else 0)
+                              mid_time, time_array, n_pars=n_pars, dtype=dtype)
+    projected_distance = torch.where(x < 0, torch.ones_like(x, dtype=dtype, device=x.device) * MAX_RATIO_RADII,
+                                     torch.sqrt(y ** 2 + z ** 2))
+    n_pars = max(n_pars, projected_distance.shape[0],
+                 fp_over_fs.shape[0] if isinstance(fp_over_fs, torch.Tensor) else 1)
 
-    return (1. + fp_over_fs * transit_flux_drop('linear', torch.zeros(n_pars, 1), 1. / rp_over_rs,
-                                                projected_distance, precision=precision)) / (1. + fp_over_fs)
+    return (1. + fp_over_fs * transit_flux_drop('linear', torch.zeros(n_pars, 1), 1. / rp_over_rs, projected_distance,
+                                                precision=precision, n_pars=n_pars)) / (1. + fp_over_fs)
 
 
 def eclipse_centered(fp_over_fs, rp_over_rs, period, sma_over_rs, eccentricity, inclination, periastron, mid_time,
