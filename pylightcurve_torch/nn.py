@@ -18,7 +18,7 @@ class TransitModule(nn.Module):
                     'drop_s': {'fp', 'rp'}}
 
     def __init__(self, time=None, primary=True, secondary=False, epoch_type=None, precision=3, dtype=torch.float64,
-                 **kwargs):
+                 cache_pos=False, cache_flux=False, cache_dur=False, **kwargs):
         """ Creates a pytorch transit model class, inheriting torch.nn.Module
 
         The model computes kepler positions, primary and secondary transits flux_drop drops for N different sets of
@@ -33,6 +33,15 @@ class TransitModule(nn.Module):
         :param precision:  (type: int ; default: 3)
         :param dtype: tensors dtype (default: torch.float64) If None provided, the environment default torch dtype will
             be used.
+        :param cache_pos: whether or not to save the position tensors for efficiency. Note that this requires it to be
+            outside of the Dynamic Computational Graph, and will be set to False with a warning as soon as a dependable
+            parameter has its gradient activated.
+        :param cache_flux: whether or not to save the flux decrements tensors for efficiency. Note that this requires it to be
+            outside of the Dynamic Computational Graph, and will be set to False with a warning as soon as a dependable
+            parameter has its gradient activated.
+        :param cache_dur: whether or not to save the duration tensors for efficiency. Note that this requires it to be
+            outside of the Dynamic Computational Graph, and will be set to False with a warning as soon as a dependable
+            parameter has its gradient activated.
         :param kwargs: additional optional parameters. If given these must be named like transit params
         """
         super().__init__()
@@ -53,11 +62,13 @@ class TransitModule(nn.Module):
             except AssertionError:
                 raise ValueError("epoch_type should be one of: 'primary', 'secondary' ")
         self.precision = precision
-
         if dtype is None:
             self.dtype = torch.get_default_dtype()
         else:
             self.dtype = dtype
+        self.cache_pos = cache_pos
+        self.cache_flux = cache_flux
+        self.cache_dur = cache_dur
 
         self.__shape = [None, None]
         self.method = None
@@ -199,6 +210,19 @@ class TransitModule(nn.Module):
         """
         self.time = None
         self.__shape[1] = None
+        self.__flux_p = None
+        self.__flux_s = None
+        self.__pos = None
+
+    def clear_cache(self):
+        """ Resets all the cache hidden attributes to None
+
+        :return:
+        """
+        self.__pos = None
+        self.__flux_p = None
+        self.__flux_s = None
+        self.__dur = None
 
     def set_param(self, **kwargs):
         """ sets or updates transit parameters values
@@ -219,12 +243,12 @@ class TransitModule(nn.Module):
                 continue
             data = self.prepare_value(name, value)
 
-            param = nn.Parameter(data, requires_grad=data.requires_grad)
             if getattr(self, name) is None:
-                self.__setattr__(name, param)
+                self.__setattr__(name, nn.Parameter(data, requires_grad=False))
             else:
-                getattr(self, name).data = param.data
-                getattr(self, name).requires_grad = data.requires_grad
+                getattr(self, name).data = data
+            if data.requires_grad:
+                self.fit_param(name)
 
     def prepare_value(self, name, value, update_shape=True):
         if name == "method":
@@ -237,7 +261,7 @@ class TransitModule(nn.Module):
         elif isinstance(value, torch.Tensor):
             data = value.to(self.dtype)
         else:
-            data = torch.tensor(value, dtype=self.dtype)
+            data = torch.tensor(value, dtype=self.dtype, requires_grad=False)
 
         # Dimensionality
         if name == 'ldc':
@@ -255,6 +279,12 @@ class TransitModule(nn.Module):
         return data
 
     def fit_param(self, *args):
+        """ Activates the gradient for each of the parameter provided
+        This will also deactivate and reset the cache for the dependent tensors, with a possible warning if applicable.
+
+        :param args:
+        :return:
+        """
         for name in args:
             if name not in self._authorised_parnames:
                 raise RuntimeError(f"parameter {name} not in authorized model's list")
@@ -263,6 +293,22 @@ class TransitModule(nn.Module):
                 warnings.warn("param is None, its grad can't be activated")
             else:
                 param.requires_grad = True
+                if name in self._pars_of_fun['duration']:
+                    self.__dur = None
+                    if self.cache_dur:
+                        warnings.warn('duration caching deactivated because of its inclusion in the DCG')
+                    self.cache_dur = False
+                if name in self._pars_of_fun['position']:
+                    if self.cache_pos:
+                        warnings.warn('position caching deactivated because of its inclusion in the DCG')
+                    self.__pos = None
+                    self.cache_pos = False
+                if name in self._pars_of_fun['drop_p'].union(self._pars_of_fun['drop_s']):
+                    self.__flux_p = None
+                    self.__flux_s = None
+                    if self.cache_flux:
+                        warnings.warn('flux drop caching deactivated because of its inclusion in the DCG')
+                    self.cache_flux = False
 
     def freeze_param(self, *args):
         for name in args:
@@ -283,6 +329,16 @@ class TransitModule(nn.Module):
         if name not in self._authorised_parnames:
             raise RuntimeError(f"parameter {name} not in authorized model's list")
         setattr(self, name, None)
+
+        if self.cache_flux:
+            if name in self._pars_of_fun['drop_p']:
+                self.__flux_p = None
+            if name in self._pars_of_fun['drop_s']:
+                self.__flux_s = None
+        if self.cache_dur and name in self._pars_of_fun['duration']:
+            self.__dur = None
+        if self.cache_pos and name in self._pars_of_fun['position']:
+            self.__pos = None
 
     def clear_params(self, *args):
         """ Resets several parameters to None value
@@ -329,11 +385,19 @@ class TransitModule(nn.Module):
         parlist = self._pars_of_fun[function]
         batch_size = 1
         out = dict()
+        ext_args = dict()
+        # External arguments aliases
+        for k in kwargs:
+            if k in PLC_ALIASES:
+                parname = PLC_ALIASES[k]
+            else:
+                parname = k
+            ext_args[parname] = kwargs[k]
         if function in ['dop_p', 'drop_s', 'none']:
             batch_size = self.time.shape[0]
         for k in parlist:
-            if k in kwargs:
-                v = kwargs[k]
+            if k in ext_args:
+                v = ext_args[k]
                 if prepare_args:
                     v = self.prepare_value(k, v, update_shape=False)
             else:
@@ -350,21 +414,24 @@ class TransitModule(nn.Module):
         return out, batch_size
 
     def get_position(self, **kwargs):
-        """ Computes the 3D cartesian positions of the planet following a Keplerian orbit
+        """ Computes the cached or computed 3D cartesian positions of the planet following a Keplerian orbit
         if any model parameter is provided while calling this method, no caching will take place
+
         :param kwargs:
         :return: tuple of position arrays x, y, z, each of shape (N, T)
         # """
-        # if self.cache_position and self.__pos is not None and not {k for k in kwargs if k in self.parpos}:
-        #     return self.__pos
+        if self.cache_pos and self.__pos is not None and not {k for k in kwargs if k in self._pars_of_fun['position']}:
+            return self.__pos
         if self.time is None:
             raise RuntimeError('time attribute needs to be defined')
         d, batch_size = self.get_input_params(**kwargs, function='position')
         x, y, z = exoplanet_orbit(d['P'], d['a'], d['e'], d['i'], d['w'], d['t0'], self.time,
                                   ww=torch.zeros(1, 1, dtype=self.dtype), n_pars=batch_size, dtype=self.dtype)
-        # if self.cache_position:
-        #     self.__pos = out
-        return x * self._pos_factor, y * self._pos_factor, z * self._pos_factor
+
+        out = x * self._pos_factor, y * self._pos_factor, z * self._pos_factor
+        if self.cache_pos:
+            self.__pos = out
+        return out
 
     position = property(get_position)
 
@@ -377,8 +444,6 @@ class TransitModule(nn.Module):
             return torch.where(x < 0., torch.ones_like(x, dtype=self.dtype) * MAX_RATIO_RADII, proj_dist)
         elif restrict_orbit == 'secondary':
             return torch.where(x > 0., torch.ones_like(x, dtype=self.dtype) * MAX_RATIO_RADII, proj_dist)
-        # if self.cache_position:
-        #     self.__pos = out
 
     proj_dist = property(get_proj_dist)
 
@@ -387,12 +452,13 @@ class TransitModule(nn.Module):
         if any model parameter is provided while calling this method, no caching will take place
         :return:
         """
-        # if self.cache_duration and self.__dur is not None and not {k for k in kwargs if k in self.pardur}:
-        #     return self.__dur
+        ext_provided = {k for k in kwargs if k in self._pars_of_fun['duration']}
+        if self.cache_dur and self.__dur is not None and not ext_provided:
+            return self.__dur
         d, batch_size = self.get_input_params(**kwargs, function='duration')
         out = transit_duration(d['rp'], d['P'], d['a'], d['i'], d['e'], d['w'])
-        # if self.cache_duration:
-        #     self.__dur = out
+        if self.cache_dur:
+            self.__dur = out
         return out
 
     duration = property(get_duration)
@@ -404,16 +470,16 @@ class TransitModule(nn.Module):
         :param kwargs: additional functions argument to replace the class' one, disabling caching where necessary
         :return: (N, T)-shaped array of flux_drop drop values
         """
-        # if self.cache_flux and self.__flux_p is not None and not kwargs:
-        #     return self.__flux_p
-
+        ext_provided = bool([k for k in kwargs if k in self._pars_of_fun['drop_p']])
+        if self.cache_flux and self.__flux_p is not None and not ext_provided:
+            return self.__flux_p
         proj_dist = self.get_proj_dist(**kwargs, restrict_orbit='primary')
         d, batch_size = self.get_input_params(**kwargs, function='drop_p')
         batch_size = max(batch_size, proj_dist.shape[0])
         out = transit_flux_drop(d['method'], d['ldc'], d['rp'], proj_dist,
                                 precision=self.precision, n_pars=batch_size)
-        # if self.cache_flux:
-        #     self.__flux_p = out
+        if self.cache_flux:
+            self.__flux_p = out
         return out
 
     flux_p = property(get_flux_p)
@@ -425,16 +491,17 @@ class TransitModule(nn.Module):
         :param kwargs: additional functions argument to replace the class' one, disabling caching where necessary
         :return: (N, T)-shaped array of flux drop values
         """
-        # if self.cache_flux and self.__flux_s is not None and not kwargs:
-        #     return self.__flux_s
+        ext_provided = bool([k for k in kwargs if k in self._pars_of_fun['drop_s']])
+        if self.cache_flux and self.__flux_s is not None and not ext_provided:
+            return self.__flux_s
         d, batch_size = self.get_input_params(**kwargs, function='drop_s')
         proj_dist = self.get_proj_dist(**kwargs, restrict_orbit='secondary') / d['rp']
         batch_size = max(batch_size, proj_dist.shape[0])
         out = transit_flux_drop('linear', torch.zeros(batch_size, 1), 1 / d['rp'], proj_dist,
                                 precision=self.precision, n_pars=batch_size)
         out = (1. + d['fp'] * out) / (1. + d['fp'])
-        # if self.cache_flux:
-        #     self.__flux_s = out
+        if self.cache_flux:
+            self.__flux_s = out
         return out
 
     flux_s = property(get_flux_s)

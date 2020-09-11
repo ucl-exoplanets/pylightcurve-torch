@@ -1,7 +1,10 @@
+import pytest
 import numpy as np
 import torch
+import timeit
 
 from pylightcurve_torch.nn import TransitModule
+from pylightcurve_torch.constants import PLC_ALIASES
 
 pars = {'method': "linear", 'rp': 0.0241, 'fp': 0.00001, 'P': 7.8440, 'a': 5.4069, 'e': 0.3485, 'i': 91.8170,
         'w': 77.9203, 't0': 5.1814, 'ldc': 0.1}
@@ -121,12 +124,42 @@ def test_time_tensor():
 
 def test_gradients():
     tm = TransitModule(time=time_array, **params_dicts['scalar'], secondary=True)
-    for param in tm._parameters:
+    for param in list(tm._parameters.keys()) + ['rp_over_rs']:
         if param == 'time':
             continue
         tm.zero_grad()
         tm.fit_param(param)
-        tm().sum().backward()
+        assert getattr(tm, param).requires_grad
+        flux = tm()
+        assert flux.requires_grad
+        flux.sum().backward()
         g = getattr(tm, param).grad
         assert not torch.isnan(g) and g.item() != 0.
         tm.freeze_param(param)
+        assert not getattr(tm, param).requires_grad
+
+        # external argument
+        if param in tm._parnames:
+            value = torch.tensor(pars[param], requires_grad=True)
+        elif param in PLC_ALIASES:
+            value = torch.tensor(pars[PLC_ALIASES[param]], requires_grad=True)
+        assert value.requires_grad
+        flux = tm(**{param: value})
+        assert flux.requires_grad
+        assert not getattr(tm, param).requires_grad
+        flux.sum().backward()
+        g = getattr(tm, param).grad
+        assert not torch.isnan(g) and g.item() != 0.
+
+
+def test_cache():
+    tm = TransitModule(time=time_array, **params_dicts['scalar'], secondary=True)
+    tm_cache = TransitModule(time=time_array, **params_dicts['scalar'], secondary=True, cache_pos=True)
+
+    time = timeit.timeit(lambda: tm.get_position(), number=20)
+    time_cache = timeit.timeit(lambda: tm_cache.get_position(), number=20)
+    assert time_cache < time / 5
+    with pytest.warns(UserWarning):
+        tm_cache.fit_param('P')
+    assert not tm_cache.cache_pos
+
