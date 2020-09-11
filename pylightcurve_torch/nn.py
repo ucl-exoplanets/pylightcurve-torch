@@ -214,16 +214,6 @@ class TransitModule(nn.Module):
         self.__flux_s = None
         self.__pos = None
 
-    def clear_cache(self):
-        """ Resets all the cache hidden attributes to None
-
-        :return:
-        """
-        self.__pos = None
-        self.__flux_p = None
-        self.__flux_s = None
-        self.__dur = None
-
     def set_params(self, **kwargs):
         """ sets or updates transit parameters values as key/value pairs
         Parameters are accessible as class attributes.
@@ -289,12 +279,20 @@ class TransitModule(nn.Module):
                                    + f" (module's ({self.shape[0]}) != {name}'s ({data.shape[0]}))")
         return data
 
-    def update_cache(self, name):
-        """ selectively resets the appropriate cached tensors
+    def reset_cache(self, name=None):
+        """ Resets the appropriate cached tensors.
 
-        :param name: parameter name from which to selectively infer the dependent cached tensors
+        Cached tensors are reset to None value, selectively if a parameter name is given.
+        :param name: parameter name from which to selectively infer the dependent cached tensors. If no name provided
+            ('default'), all the cached tensors will be reset (to None).
         :return:
         """
+        if name is None:
+            self.__pos = None
+            self.__flux_p = None
+            self.__flux_s = None
+            self.__dur = None
+            return
         if name in self._pars_of_fun['duration']:
             self.__dur = None
             if self.cache_dur:
@@ -327,7 +325,7 @@ class TransitModule(nn.Module):
                 warnings.warn("param is None, its grad can't be activated")
             else:
                 param.requires_grad = True
-                self.update_cache(name)
+                self.reset_cache(name)
 
     def freeze_param(self, *args):
         for name in args:
@@ -348,7 +346,7 @@ class TransitModule(nn.Module):
         if name not in self._authorised_parnames:
             raise RuntimeError(f"parameter {name} not in authorized model's list")
         setattr(self, name, None)
-        self.update_cache(name)
+        self.reset_cache(name)
 
     def clear_params(self, *args):
         """ Resets several parameters to None value
