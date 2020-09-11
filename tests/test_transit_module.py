@@ -1,3 +1,4 @@
+import pytest
 import numpy as np
 import torch
 
@@ -18,7 +19,6 @@ params_dicts = {'scalar': pars,
                 'tensor_1': map_dict(pars, lambda x: torch.tensor(x)[None]),
                 'tensor_2': map_dict(pars, lambda x: torch.tensor(x)[None, None]),
                 'tensor_3': map_dict(pars, lambda x: torch.tensor(x)[None, None, None]),
-                "tensor_grad": map_dict(pars, lambda x: torch.tensor(x)[None, None].requires_grad_()),
                 'plc': {'method': "linear", 'rp_over_rs': 0.0241, 'period': 7.8440, 'fp_over_fs': 0.00001,
                         'sma_over_rs': 5.4069, 'eccentricity': 0.3485, 'inclination': 91.8170,
                         'periastron': 77.9203, 'mid_time': 5.1814, 'limb_darkening_coefficients': 0.5}
@@ -122,7 +122,6 @@ def test_time_tensor():
 
 
 def test_gradients():
-    print('starting to test gradients')
     tm = TransitModule(time=time_array, **params_dicts['scalar'], secondary=True)
     for param in list(tm._parameters.keys()) + ['rp_over_rs']:
         if param == 'time':
@@ -150,3 +149,10 @@ def test_gradients():
         flux.sum().backward()
         g = getattr(tm, param).grad
         assert not torch.isnan(g) and g.item() != 0.
+
+
+def test_cache():
+    tm = TransitModule(time=time_array, **params_dicts['scalar'], secondary=True, cache_pos=True)
+    with pytest.warns(UserWarning):
+         tm.fit_param('P')
+
