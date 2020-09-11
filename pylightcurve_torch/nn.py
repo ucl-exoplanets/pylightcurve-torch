@@ -76,7 +76,7 @@ class TransitModule(nn.Module):
             if name != 'method':
                 self.__setattr__(name, None)
         if kwargs:
-            self.set_param(**kwargs)
+            self.set_params(**kwargs)
 
         self.time = None
         self.time_unit = None
@@ -224,8 +224,8 @@ class TransitModule(nn.Module):
         self.__flux_s = None
         self.__dur = None
 
-    def set_param(self, **kwargs):
-        """ sets or updates transit parameters values
+    def set_params(self, **kwargs):
+        """ sets or updates transit parameters values as key/value pairs
         Parameters are accessible as class attributes.
         Except method, all params are torch tensor parameters
 
@@ -235,20 +235,31 @@ class TransitModule(nn.Module):
         if not kwargs:
             warnings.warn('no parameter provided')
         for name, value in kwargs.items():
-            if name not in self._authorised_parnames:
-                raise RuntimeError(f"parameter {name} not in authorized model's list")
+            self.set_param(name, value)
 
-            if name == "method":
-                self.set_method(value)
-                continue
-            data = self.prepare_value(name, value)
+    def set_param(self, name, value):
+        """ Set or updates a transit parameter by name and value
 
-            if getattr(self, name) is None:
-                self.__setattr__(name, nn.Parameter(data, requires_grad=False))
-            else:
-                getattr(self, name).data = data
-            if data.requires_grad:
-                self.fit_param(name)
+        Parameter will be defined as a class Attribute, most specifically a nn.Parameter except for 'method' which
+        is just a str.
+        :param name: nme of the param (or alias)
+        :param value: value of the param
+        :return:
+        """
+        if name not in self._authorised_parnames:
+            raise RuntimeError(f"parameter {name} not in authorized model's list")
+
+        if name == "method":
+            self.set_method(value)
+            return
+        data = self.prepare_value(name, value)
+
+        if getattr(self, name) is None:
+            self.__setattr__(name, nn.Parameter(data, requires_grad=False))
+        else:
+            getattr(self, name).data = data
+        if data.requires_grad:
+            self.fit_param(name)
 
     def prepare_value(self, name, value, update_shape=True):
         if name == "method":
@@ -361,7 +372,7 @@ class TransitModule(nn.Module):
         if not (value is None or value in self._methods_dim):
             raise ValueError(f'if stated limb darkening method must be in {tuple(self._methods_dim.keys())}')
         if self.ldc is not None and self.ldc.shape[-1] != self._methods_dim[value]:
-            self.set_param(ldc=None)
+            self.set_param('ldc', None)
             warnings.warn('ldc method incompatible with ldc tensor dimension. ldc coefs have been reset.')
 
     def set_method(self, value):

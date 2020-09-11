@@ -56,7 +56,7 @@ def test_transit_type():
 
 def test_pytorch_inherited_attr():
     tm = TransitModule()
-    tm.set_param(e=0.)
+    tm.set_param("e", 0.)
     tm.set_time(range(10))
 
     tm.float()
@@ -90,7 +90,7 @@ def test_transit_params():
         tm.clear_params()
         attr = np.random.choice(list(tm._parnames))
         assert getattr(tm, attr) is None
-        tm.set_param(**d)
+        tm.set_params(**d)
 
         tm.position
         for i, x in enumerate([tm.proj_dist,  tm.flux_drop, tm.forward(), tm()]):
