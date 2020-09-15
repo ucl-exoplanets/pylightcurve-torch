@@ -1,0 +1,2 @@
+ ,version                      ,2                  ,9           ,16                  ,batch_size,number,cpus,gpus
+0,0.8.3.dev0+git.cca20aee.dirty,0.01107578460000001,0.0332308037,0.049337249320000005,32        ,50    ,8   ,0
