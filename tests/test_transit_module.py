@@ -93,8 +93,7 @@ def test_transit_params():
         assert getattr(tm, attr) is None
         tm.set_params(**d)
 
-        tm.position
-        for i, x in enumerate([tm.proj_dist, tm.flux_drop, tm.forward(), tm()]):
+        for i, x in enumerate([tm.proj_dist, tm.drop_p, tm.forward(), tm()]):
             assert isinstance(x, torch.Tensor)
             assert not torch.isnan(x).any()
 
@@ -114,8 +113,7 @@ def test_ldc_methods():
         ldc = pars_ldc[method][None, :]
         tm.set_method(method)
         tm.set_param('ldc', ldc)
-        tm.position
-        tm.get_flux_s()
+        tm.get_drop_s()
         tm()
 
 
@@ -144,20 +142,20 @@ def test_gradients():
         if param == 'time':
             continue
         tm.zero_grad()
-        tm.fit_param(param)
+        tm.activate_grad(param)
         assert getattr(tm, param).requires_grad
         flux = tm()
         assert flux.requires_grad
         flux.sum().backward()
         g = getattr(tm, param).grad
         assert not torch.isnan(g) and g.item() != 0.
-        tm.freeze_param(param)
+        tm.deactivate_grad(param)
         assert not getattr(tm, param).requires_grad
 
         # external argument
         if param in tm._parnames:
             value = torch.tensor(pars[param], requires_grad=True)
-        elif param in PLC_ALIASES:
+        else:
             value = torch.tensor(pars[PLC_ALIASES[param]], requires_grad=True)
         assert value.requires_grad
         flux = tm(**{param: value})
@@ -176,7 +174,7 @@ def test_cache():
     time_cache = timeit.timeit(lambda: tm_cache.get_position(), number=20)
     assert time_cache < time / 5
     with pytest.warns(UserWarning):
-        tm_cache.fit_param('P')
+        tm_cache.activate_grad('P')
     assert not tm_cache.cache_pos
 
 
@@ -187,7 +185,7 @@ def test_cuda():
     tm()
 
     tm.cpu()
-    tm.clear_time()
+    tm.reset_time()
     try:
         tm.set_time(time_tensor)
         tm()
