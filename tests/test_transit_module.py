@@ -1,15 +1,16 @@
-import pytest
-import numpy as np
-import torch
 import timeit
 
-from pylightcurve_torch.nn import TransitModule
+import numpy as np
+import pytest
+import torch
+
 from pylightcurve_torch.constants import PLC_ALIASES
+from pylightcurve_torch.nn import TransitModule
 
 pars = {'method': "linear", 'rp': 0.0241, 'fp': 0.00001, 'P': 7.8440, 'a': 5.4069, 'e': 0.3485, 'i': 91.8170,
         'w': 77.9203, 't0': 5.1814, 'ldc': 0.1}
 
-map_dict = lambda d, f: {k: (f(v) if k!= 'method' else v) for k, v in d.items()}
+map_dict = lambda d, f: {k: (f(v) if k != 'method' else v) for k, v in d.items()}
 params_dicts = {'scalar': pars,
                 'with_int': map_dict(pars, int),
                 'np_scalar': map_dict(pars, np.array),
@@ -92,8 +93,7 @@ def test_transit_params():
         assert getattr(tm, attr) is None
         tm.set_params(**d)
 
-        tm.position
-        for i, x in enumerate([tm.proj_dist,  tm.flux_drop, tm.forward(), tm()]):
+        for i, x in enumerate([tm.proj_dist, tm.drop_p, tm.forward(), tm()]):
             assert isinstance(x, torch.Tensor)
             assert not torch.isnan(x).any()
 
@@ -113,8 +113,7 @@ def test_ldc_methods():
         ldc = pars_ldc[method][None, :]
         tm.set_method(method)
         tm.set_param('ldc', ldc)
-        tm.position
-        tm.get_flux_s()
+        tm.get_drop_s()
         tm()
 
 
@@ -143,20 +142,20 @@ def test_gradients():
         if param == 'time':
             continue
         tm.zero_grad()
-        tm.fit_param(param)
+        tm.activate_grad(param)
         assert getattr(tm, param).requires_grad
         flux = tm()
         assert flux.requires_grad
         flux.sum().backward()
         g = getattr(tm, param).grad
         assert not torch.isnan(g) and g.item() != 0.
-        tm.freeze_param(param)
+        tm.deactivate_grad(param)
         assert not getattr(tm, param).requires_grad
 
         # external argument
         if param in tm._parnames:
             value = torch.tensor(pars[param], requires_grad=True)
-        elif param in PLC_ALIASES:
+        else:
             value = torch.tensor(pars[PLC_ALIASES[param]], requires_grad=True)
         assert value.requires_grad
         flux = tm(**{param: value})
@@ -175,6 +174,23 @@ def test_cache():
     time_cache = timeit.timeit(lambda: tm_cache.get_position(), number=20)
     assert time_cache < time / 5
     with pytest.warns(UserWarning):
-        tm_cache.fit_param('P')
+        tm_cache.activate_grad('P')
     assert not tm_cache.cache_pos
 
+
+def test_cuda():
+    if not torch.cuda.is_available():
+        pytest.skip('no available gpu')
+    tm = TransitModule(time_tensor, secondary=True, **params_dicts['scalar']).cuda()
+    tm()
+
+    tm.cpu()
+    tm.reset_time()
+    try:
+        tm.set_time(time_tensor)
+        tm()
+    except RuntimeError:
+        print("error caught. Right behaviour because time tensor not supposed to have been converted")
+        tm.set_time(time_tensor)
+        tm.cuda()
+        tm()
