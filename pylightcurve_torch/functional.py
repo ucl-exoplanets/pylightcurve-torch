@@ -387,8 +387,9 @@ def eclipse(fp_over_fs, rp_over_rs, period, sma_over_rs, eccentricity, inclinati
     n_pars = max(n_pars, projected_distance.shape[0],
                  fp_over_fs.shape[0] if isinstance(fp_over_fs, torch.Tensor) else 1)
 
-    return (1. + fp_over_fs * transit_flux_drop('linear', torch.zeros(n_pars, 1), 1. / rp_over_rs, projected_distance,
-                                                precision=precision, n_pars=n_pars)) / (1. + fp_over_fs)
+    return (1. + fp_over_fs * transit_flux_drop('linear', time_array.new_zeros(n_pars, 1), 1. / rp_over_rs,
+                                                projected_distance, precision=precision,
+                                                n_pars=n_pars)) / (1. + fp_over_fs)
 
 
 def eclipse_centered(fp_over_fs, rp_over_rs, period, sma_over_rs, eccentricity, inclination, periastron, mid_time,

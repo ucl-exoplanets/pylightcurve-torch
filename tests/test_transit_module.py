@@ -1,15 +1,16 @@
-import pytest
-import numpy as np
-import torch
 import timeit
 
-from pylightcurve_torch.nn import TransitModule
+import numpy as np
+import pytest
+import torch
+
 from pylightcurve_torch.constants import PLC_ALIASES
+from pylightcurve_torch.nn import TransitModule
 
 pars = {'method': "linear", 'rp': 0.0241, 'fp': 0.00001, 'P': 7.8440, 'a': 5.4069, 'e': 0.3485, 'i': 91.8170,
         'w': 77.9203, 't0': 5.1814, 'ldc': 0.1}
 
-map_dict = lambda d, f: {k: (f(v) if k!= 'method' else v) for k, v in d.items()}
+map_dict = lambda d, f: {k: (f(v) if k != 'method' else v) for k, v in d.items()}
 params_dicts = {'scalar': pars,
                 'with_int': map_dict(pars, int),
                 'np_scalar': map_dict(pars, np.array),
@@ -93,7 +94,7 @@ def test_transit_params():
         tm.set_params(**d)
 
         tm.position
-        for i, x in enumerate([tm.proj_dist,  tm.flux_drop, tm.forward(), tm()]):
+        for i, x in enumerate([tm.proj_dist, tm.flux_drop, tm.forward(), tm()]):
             assert isinstance(x, torch.Tensor)
             assert not torch.isnan(x).any()
 
@@ -178,3 +179,20 @@ def test_cache():
         tm_cache.fit_param('P')
     assert not tm_cache.cache_pos
 
+
+def test_cuda():
+    if not torch.cuda.is_available():
+        pytest.skip('no available gpu')
+    tm = TransitModule(time_tensor, secondary=True, **params_dicts['scalar']).cuda()
+    tm()
+
+    tm.cpu()
+    tm.clear_time()
+    try:
+        tm.set_time(time_tensor)
+        tm()
+    except RuntimeError:
+        print("error caught. Right behaviour because time tensor not supposed to have been converted")
+        tm.set_time(time_tensor)
+        tm.cuda()
+        tm()

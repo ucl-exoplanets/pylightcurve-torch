@@ -1,8 +1,8 @@
 import warnings
-from typing import Any, Optional, Union
+from typing import Any
 
 import torch
-from torch import nn, dtype, device
+from torch import nn
 
 from .constants import MAX_RATIO_RADII, PLC_ALIASES
 from .functional import exoplanet_orbit, transit_duration, transit_flux_drop
@@ -434,7 +434,7 @@ class TransitModule(nn.Module):
             raise RuntimeError('time attribute needs to be defined')
         d, batch_size = self.get_input_params(**kwargs, function='position')
         x, y, z = exoplanet_orbit(d['P'], d['a'], d['e'], d['i'], d['w'], d['t0'], self.time,
-                                  ww=torch.zeros(1, 1, dtype=self.dtype), n_pars=batch_size, dtype=self.dtype)
+                                  ww=self.time.new_zeros(1, 1, dtype=self.dtype), n_pars=batch_size, dtype=self.dtype)
 
         out = x * self._pos_factor, y * self._pos_factor, z * self._pos_factor
         if self.cache_pos:
@@ -505,7 +505,7 @@ class TransitModule(nn.Module):
         d, batch_size = self.get_input_params(**kwargs, function='drop_s')
         proj_dist = self.get_proj_dist(**kwargs, restrict_orbit='secondary') / d['rp']
         batch_size = max(batch_size, proj_dist.shape[0])
-        out = transit_flux_drop('linear', torch.zeros(batch_size, 1), 1 / d['rp'], proj_dist,
+        out = transit_flux_drop('linear', self.time.new_zeros(batch_size, 1), 1 / d['rp'], proj_dist,
                                 precision=self.precision, n_pars=batch_size)
         out = (1. + d['fp'] * out) / (1. + d['fp'])
         if self.cache_flux:
