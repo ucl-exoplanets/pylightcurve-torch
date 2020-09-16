@@ -38,6 +38,7 @@ def compute_perf(n_vect=None, p_vect=None, dur_vect=None, plot=True, save=True, 
         if os.path.exists(fname):
             df = pd.read_csv(fname, header=0, index_col=0,
                              dtype={'version': str, 'number': int, 'time_length': int, 'cpus': int, 'gpus': int})
+            df = df.rename(columns=lambda x: x.strip())
             if version in df.version.values:
                 warnings.warn(f'Version label {version} already exists.')
         else:
@@ -91,6 +92,7 @@ def compute_perf(n_vect=None, p_vect=None, dur_vect=None, plot=True, save=True, 
         if os.path.exists(fname):
             df = pd.read_csv(fname, header=0, index_col=0,
                              dtype={'version': str, 'cpus': int, 'gpus': int, 'batch_size': int, 'number': int})
+            df = df.rename(columns=lambda x: x.strip())
             if version in df.version.values:
                 warnings.warn(f'Version label {version} already exists.')
         else:
@@ -153,6 +155,7 @@ def compute_perf(n_vect=None, p_vect=None, dur_vect=None, plot=True, save=True, 
         if os.path.exists(fname):
             df = pd.read_csv(fname, header=0, index_col=0,
                              dtype={'version': str, 'cpus': int, 'gpus': int, 'batch_size': int, 'number': int})
+            df = df.rename(columns=lambda x: x.strip())
             if version in df.version.values:
                 warnings.warn(f'Version label {version} already exists.')
         else:
