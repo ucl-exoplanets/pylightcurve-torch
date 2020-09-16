@@ -1,5 +1,6 @@
-import torch
 from collections import OrderedDict
+
+import torch
 
 PI = 3.1415926535897932
 MAX_RATIO_RADII = 1.e12

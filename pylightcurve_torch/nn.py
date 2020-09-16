@@ -3,7 +3,7 @@ import warnings
 import torch
 from torch import nn
 
-from .constants import MAX_RATIO_RADII, PLC_ALIASES
+from ._constants import MAX_RATIO_RADII, PLC_ALIASES
 from .functional import exoplanet_orbit, transit_duration, transit_flux_drop
 
 
@@ -18,7 +18,7 @@ class TransitModule(nn.Module):
 
     def __init__(self, time=None, primary=True, secondary=False, epoch_type=None, precision=3, dtype=torch.float64,
                  cache_pos=False, cache_flux=False, cache_dur=False, **kwargs):
-        """Instantiate a pytorch transit module instance
+        """Create a pytorch transit module instance
 
         The model computes kepler positions, primary and secondary transits flux_drop drops for N different sets of
          parameters and T time steps
