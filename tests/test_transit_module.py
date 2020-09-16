@@ -1,7 +1,6 @@
-import timeit
-
 import numpy as np
 import pytest
+import timeit
 import torch
 
 from pylightcurve_torch._constants import PLC_ALIASES
@@ -104,15 +103,15 @@ def test_transit_params():
 
 
 def test_ldc_methods():
-    pars_ldc = {'linear': np.random.rand(1),
+    pars_ldc = {'linear': np.random.rand(1)[None, :],
                 'sqrt': np.random.rand(2)[None, :],
                 'quad': np.random.rand(2)[None, :],
                 'claret': np.random.rand(4)[None, :]}
     tm = TransitModule(**params_dicts['scalar'], time=time_tensor)
     for method in ['linear', 'sqrt', 'quad', 'claret']:
-        ldc = pars_ldc[method][None, :]
+        tm.reset_param('ldc')
         tm.set_method(method)
-        tm.set_param('ldc', ldc)
+        tm.set_param('ldc', pars_ldc[method])
         tm.get_drop_s()
         tm()
 

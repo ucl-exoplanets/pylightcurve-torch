@@ -315,7 +315,7 @@ def transit_flux_drop(method, limb_darkening_coefficients, rp_over_rs, z_over_rs
     # flux_upper
 
     plusflux = z_over_rs.new_zeros(n_pars, n_pts)
-    indplus = plus_case.nonzero()
+    indplus = plus_case.nonzero(as_tuple=False)
     flex_ind = lambda x, ind: x[ind] if len(x) > 1 else x
     if len(indplus):
         plusflux[indplus[:, 0], indplus[:, 1]] = integral_plus_core(method,
@@ -326,14 +326,14 @@ def transit_flux_drop(method, limb_darkening_coefficients, rp_over_rs, z_over_rs
                                                                     theta_1[plus_case], theta_2[plus_case],
                                                                     precision=precision)
 
-    ind0 = case0.nonzero()
+    ind0 = case0.nonzero(as_tuple=False)
     if len(ind0):
         plusflux[ind0[:, 0], ind0[:, 1]] = integral_centred(method,
                                                             flex_ind(limb_darkening_coefficients, ind0[:, 0]),
                                                             flex_ind(rp_over_rs, ind0[:, 0])[:, 0],
                                                             rp_over_rs.new_zeros(1), PI)
 
-    indb = caseb.nonzero()
+    indb = caseb.nonzero(as_tuple=False)
     if len(indb):
         plusflux[indb[:, 0], indb[:, 1]] = integral_centred(method,
                                                             flex_ind(limb_darkening_coefficients, indb[:, 0]),
@@ -343,7 +343,7 @@ def transit_flux_drop(method, limb_darkening_coefficients, rp_over_rs, z_over_rs
     # flux_lower
 
     minsflux = z_over_rs.new_zeros(n_pars, n_pts)
-    indmins = minus_case.nonzero()
+    indmins = minus_case.nonzero(as_tuple=False)
     minsflux[indmins[:, 0], indmins[:, 1]] = integral_minus_core(method,
                                                                  flex_ind(limb_darkening_coefficients, indmins[:, 0]),
                                                                  flex_ind(rp_over_rs, indmins[:, 0])[:, 0],
@@ -354,7 +354,7 @@ def transit_flux_drop(method, limb_darkening_coefficients, rp_over_rs, z_over_rs
 
     # flux_star
     starflux = z_over_rs.new_zeros(n_pars, n_pts)
-    indstar = star_case.nonzero()
+    indstar = star_case.nonzero(as_tuple=False)
     starflux[indstar[:, 0], indstar[:, 1]] = integral_centred(method,
                                                               flex_ind(limb_darkening_coefficients, indstar[:, 0]),
                                                               rp_over_rs.new_ones(1),
