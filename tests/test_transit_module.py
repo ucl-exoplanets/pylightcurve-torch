@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import torch
 
-from pylightcurve_torch.constants import PLC_ALIASES
+from pylightcurve_torch._constants import PLC_ALIASES
 from pylightcurve_torch.nn import TransitModule
 
 pars = {'method': "linear", 'rp': 0.0241, 'fp': 0.00001, 'P': 7.8440, 'a': 5.4069, 'e': 0.3485, 'i': 91.8170,
@@ -104,15 +104,15 @@ def test_transit_params():
 
 
 def test_ldc_methods():
-    pars_ldc = {'linear': np.random.rand(1),
+    pars_ldc = {'linear': np.random.rand(1)[None, :],
                 'sqrt': np.random.rand(2)[None, :],
                 'quad': np.random.rand(2)[None, :],
                 'claret': np.random.rand(4)[None, :]}
     tm = TransitModule(**params_dicts['scalar'], time=time_tensor)
     for method in ['linear', 'sqrt', 'quad', 'claret']:
-        ldc = pars_ldc[method][None, :]
+        tm.reset_param('ldc')
         tm.set_method(method)
-        tm.set_param('ldc', ldc)
+        tm.set_param('ldc', pars_ldc[method])
         tm.get_drop_s()
         tm()
 

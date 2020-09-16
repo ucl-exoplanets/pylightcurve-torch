@@ -3,7 +3,7 @@ import warnings
 import torch
 from torch import nn
 
-from .constants import MAX_RATIO_RADII, PLC_ALIASES
+from ._constants import MAX_RATIO_RADII, PLC_ALIASES
 from .functional import exoplanet_orbit, transit_duration, transit_flux_drop
 
 
@@ -18,7 +18,7 @@ class TransitModule(nn.Module):
 
     def __init__(self, time=None, primary=True, secondary=False, epoch_type=None, precision=3, dtype=torch.float64,
                  cache_pos=False, cache_flux=False, cache_dur=False, **kwargs):
-        """Instantiate a pytorch transit module instance
+        """Create a pytorch transit module instance
 
         The model computes kepler positions, primary and secondary transits flux_drop drops for N different sets of
          parameters and T time steps
@@ -540,5 +540,6 @@ class TransitModule(nn.Module):
         if not (value is None or value in self._methods_dim):
             raise ValueError(f'if stated limb darkening method must be in {tuple(self._methods_dim.keys())}')
         if self.ldc is not None and self.ldc.shape[-1] != self._methods_dim[value]:
+            warnings.warn(f'ldc method ({value}) incompatible with ldc tensor dimension ({self.ldc.shape[-1]}). '
+                          + 'Ressetting ldc coefs.')
             self.reset_param('ldc')
-            warnings.warn('ldc method incompatible with ldc tensor dimension. ldc coefs have been reset.')
