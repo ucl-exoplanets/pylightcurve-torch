@@ -71,4 +71,39 @@ tm.rp.grad                          # access to computed gradient for parameter 
 ```
 
 
+### More Pytorch support
 
+Several utility methods inherited from PyTorch modules are listed below, simplifying operations on all module's 
+defined tensor parameters. 
+
+```python  
+tm = TransitModule()
+
+# Parameters access (iterators)
+tm.parameters()
+tm.named_parameters()
+
+# dtype conversions
+tm.float()
+tm.double()
+
+# Gradient local deactivation
+with torch.no_grad():
+    flux_no_grad = tm()
+
+# device conversion
+tm.cpu()
+tm.cuda()
+
+```
+
+### Running performance tests
+
+In addition to traditional unit tests, computation performance tests can be executed this way:
+```python
+ python tests/performance.py --plot
+ 
+```
+This will measure the computation time for computing forward transits as a function of transit duration, time vector 
+length or batch size. If data have been savec previously, these will be plotted to with the name of the corresponding
+tag.
