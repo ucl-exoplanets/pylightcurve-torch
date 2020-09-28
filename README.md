@@ -25,11 +25,35 @@ from pylightcurve_torch import TransitModule
 
 tm = TransitModule(time, **transit_params)
 
-flux_drop = tm.forward()
+flux_drop = tm()
 
 ```
 If needs be, the returned ```torch.Tensor``` can be converted to a ```numpy.ndarrray``` using ``` flux_drop.numpy()``` torch method or 
 ```flux.cpu().numpy()``` if the computation took place on a gpu.
+
+
+
+### Transit parameters
+
+Below is a summary table of the planetary orbital and transit parameters use in PyLightcurve-torch: 
+
+| Name         | Pylightcurve alias                | Description                                    | Python type | Unit     | Transit type      |
+|--------------|-----------------------------------|------------------------------------------------|-------------|----------|-------------------|
+| ```a```      | ```sma_over_rs```                 | ratio of semi-major axis by the stellar radius | float       | unitless | primary/secondary |
+| ```P```      | ```period```                      | orbital period                                 | float       | days     | primary/secondary |
+| ```e```      | ```eccentricity```                | orbital eccentricity                           | float       | unitless | primary/secondary |
+| ```i```      | ```inclination```                 | orbital inclination                            | float       | degrees  | primary/secondary |
+| ```p```      | ```periastron```                  | orbital argument of periastron                 | float       | degrees  | primary/secondary |
+| ```t0```     | ```mid_time```                    | transit mid-time epoch                         | float       | days     | primary/secondary |
+| ```rp```     | ```rp_over_rs```                  | ratio of planetary by stellar radii            | float       | unitless | primary/secondary |
+| ```method``` | ```method```                      | limb-darkening law                             | str         |          | primary           |
+| ```ldc```    | ```limb_darkening_coefficients``` | limb-darkening coefficients                    | list        | unitless | primary           |
+| ```fp```     | ```fp_over_fs```                  | ratio of planetary by stellar fluxes           | float       | unitless | secondary         |
+
+A short version of each parameter has been introduced, while maintaining a compatibility with origin PyLightcurve 
+parameter names. All the parameters except method are converted to ```torch.Parameters ``` when passed to 
+a ``TransitModule```, with double dtype. 
+
 
 
 ### Differentiation
@@ -38,10 +62,13 @@ One of the main benefits of having a pytorch implementation for modelling transi
 automatic differentiation feature with torch.autograd, stemming from autograd library. 
 
 Here is an example of basic usage:
-```  
+```python  
 ...
 tm.fit_param('rp')                  # activates the gradient computation for parameter 'rp'
 err = loss(flux, **data)            # loss computation in pytorch 
 err.backward()                      # gradients computation 
 tm.rp.grad                          # access to computed gradient for parameter 'rp'
 ```
+
+
+

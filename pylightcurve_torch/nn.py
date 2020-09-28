@@ -1,7 +1,7 @@
-from torch import nn
+import warnings
 
 import torch
-import warnings
+from torch import nn
 
 from ._constants import MAX_RATIO_RADII, PLC_ALIASES
 from .functional import exoplanet_orbit, transit_duration, transit_flux_drop
@@ -21,27 +21,46 @@ class TransitModule(nn.Module):
         """Create a pytorch transit module instance
 
         The model computes kepler positions, primary and secondary transits flux_drop drops for N different sets of
-         parameters and T time steps
+         parameters and T time steps.
 
+         Paameters:
+        -------
         :param time: array-like time series of time values. Shape: (T,), (1, T), (N, T)
         :param primary: boolean indicating whether to compute the primary transit or not (type: bool ; default: True)
         :param secondary: Whether to compute the secondary transit or not (type: bool ; default: False)
         :param epoch_type: str indicating whether the t0 parameter refers to mid primary or secondary transit times.
             It can take the str values 'primary' or 'secondary'. If the primary param is set to True, it will be
             defaulted to 'primary', and otherwise to 'secondary'.
-        :param precision:  (type: int ; default: 3)
+        :param precision: numerical precision between 1 and 6 (type: int ; default: 3)
         :param dtype: tensors dtype (default: torch.float64) If None provided, the environment default torch dtype will
             be used.
         :param cache_pos: whether or not to save the position tensors for efficiency. Note that this requires it to be
             outside of the Dynamic Computational Graph, and will be set to False with a warning as soon as a dependable
             parameter has its gradient activated.
-        :param cache_flux: whether or not to save the flux decrements tensors for efficiency. Note that this requires it to be
-            outside of the Dynamic Computational Graph, and will be set to False with a warning as soon as a dependable
+        :param cache_flux: whether or not to save the flux decrements tensors for efficiency. Note that this requires it
+        to be outside of the Dynamic Computational Graph, and will be set to False with a warning as soon as a dependent
             parameter has its gradient activated.
         :param cache_dur: whether or not to save the duration tensors for efficiency. Note that this requires it to be
             outside of the Dynamic Computational Graph, and will be set to False with a warning as soon as a dependable
             parameter has its gradient activated.
-        :param kwargs: additional optional parameters. If given these must be named like transit params
+        :param kwargs: additional optional parameters. If given these must be authorised transit parameters, as listed
+        below:
+            #Transit parameters
+            -------
+            rp: ratio of planetary by stellar radii  - unitless - alias: rp_ove_rs
+            fp: ratio of planetary by stellar fluxes - unitless - alias: fp_over_rs (specific to secondary transit)
+            a: ratio of semi-major axis by the stellar radius - unitless - alias: sma_over_rs
+            P: orbital period - days - alias: period
+            e: orbital eccentricity - unitless - alias eccentricity
+            i: orbital inclination - degrees - alias: inclination
+            p: orbital argument of periastron - degrees - alias: periastron
+            t0: transit mid-time - days - alias: mid_time
+            method: str indicating the limb-darkening law (available methods: 'claret', 'quad', 'sqrt' or 'linear')
+                (specific to primary transit)
+            ldc: A list containing the limb darkening coefficients. The list should contain 1 element if the method used
+                is the 'linear', 2 if the method used is the 'quad' or teh 'sqrt', and 4 if the method used is the
+                'claret'. (specific to primaru transit) - alias: limb_darkening_coefficients
+
         """
         super().__init__()
 
