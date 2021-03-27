@@ -176,6 +176,10 @@ def test_cache():
     with pytest.warns(UserWarning):
         tm_cache.activate_grad('P')
     assert not tm_cache.cache_pos
+    flux = tm()
+    # check that setting a position parameter will update the cached vector
+    tm.set_param('i', tm.i-1.)
+    assert not np.isclose(flux, tm()).all()
 
 
 def test_cuda():
