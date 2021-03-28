@@ -373,7 +373,8 @@ class TransitModule(nn.Module):
         :param kwargs: optional external parameters to be provided as key/values pairs and to replace module's pars
         :return: tuple of position tensors x, y, z, each of shape (N, T)
         # """
-        if self.cache_pos and self.__pos is not None and not {k for k in kwargs if k in self._pars_of_fun['position']}:
+        runtime_mode = bool({k for k in kwargs if k in self._pars_of_fun['position']})
+        if self.cache_pos and self.__pos is not None and not runtime_mode:
             return self.__pos
         if self.time is None:
             raise RuntimeError('time attribute needs to be defined')
@@ -382,7 +383,7 @@ class TransitModule(nn.Module):
                                   ww=self.time.new_zeros(1, 1, dtype=self.dtype), n_pars=batch_size, dtype=self.dtype)
 
         out = x * self._pos_factor(), y * self._pos_factor(), z * self._pos_factor()
-        if self.cache_pos:
+        if self.cache_pos and not runtime_mode:
             self.__pos = out
         return out
 
@@ -410,12 +411,12 @@ class TransitModule(nn.Module):
         if any model parameter is provided while calling this method, no caching will take place
         :return: (N,1)-shaped tensor of durations
         """
-        ext_provided = {k for k in kwargs if k in self._pars_of_fun['duration']}
-        if self.cache_dur and self.__dur is not None and not ext_provided:
+        runtime_mode = {k for k in kwargs if k in self._pars_of_fun['duration']}
+        if self.cache_dur and self.__dur is not None and not runtime_mode:
             return self.__dur
         d, batch_size = self.get_input_params(**kwargs, function='duration')
         out = transit_duration(d['rp'], d['P'], d['a'], d['i'], d['e'], d['w'])
-        if self.cache_dur:
+        if self.cache_dur and not runtime_mode:
             self.__dur = out
         return out
 
@@ -426,15 +427,15 @@ class TransitModule(nn.Module):
         :param kwargs: additional functions argument to replace the class' one, disabling caching where necessary
         :return: (N, T)-shaped tensor of flux_drop drop values
         """
-        ext_provided = bool([k for k in kwargs if k in self._pars_of_fun['drop_p']])
-        if self.cache_flux and self.__drop_p is not None and not ext_provided:
+        runtime_mode = bool([k for k in kwargs if k in self._pars_of_fun['drop_p']])
+        if self.cache_flux and self.__drop_p is not None and not runtime_mode:
             return self.__drop_p
         proj_dist = self.get_proj_dist(**kwargs, orbit_type='primary')
         d, batch_size = self.get_input_params(**kwargs, function='drop_p')
         batch_size = max(batch_size, proj_dist.shape[0])
         out = transit_flux_drop(d['method'], d['ldc'], d['rp'], proj_dist,
                                 precision=self.precision, n_pars=batch_size)
-        if self.cache_flux:
+        if self.cache_flux and not runtime_mode:
             self.__drop_p = out
         return out
 
@@ -445,8 +446,8 @@ class TransitModule(nn.Module):
         :param kwargs: additional functions argument to replace the class' one, disabling caching where necessary
         :return: (N, T)-shaped tensor of flux drop values
         """
-        ext_provided = bool([k for k in kwargs if k in self._pars_of_fun['drop_s']])
-        if self.cache_flux and self.__drop_s is not None and not ext_provided:
+        runtime_mode = bool([k for k in kwargs if k in self._pars_of_fun['drop_s']])
+        if self.cache_flux and self.__drop_s is not None and not runtime_mode:
             return self.__drop_s
         d, batch_size = self.get_input_params(**kwargs, function='drop_s')
         proj_dist = self.get_proj_dist(**kwargs, orbit_type='secondary') / d['rp']
@@ -454,7 +455,7 @@ class TransitModule(nn.Module):
         out = transit_flux_drop('linear', self.time.new_zeros(batch_size, 1), 1 / d['rp'], proj_dist,
                                 precision=self.precision, n_pars=batch_size)
         out = (1. + d['fp'] * out) / (1. + d['fp'])
-        if self.cache_flux:
+        if self.cache_flux and not runtime_mode:
             self.__drop_s = out
         return out
 
