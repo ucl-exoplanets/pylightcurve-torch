@@ -152,6 +152,10 @@ class TransitModule(nn.Module):
             self.__setattr__(name, nn.Parameter(data, requires_grad=False))
         else:
             getattr(self, name).data = data
+        # update cache
+        if self.cache_pos or self.cache_dur or self.cache_pos:
+            self.reset_cache(name)
+        # update gradient
         if data.requires_grad:
             self.activate_grad(name)
 
@@ -223,7 +227,7 @@ class TransitModule(nn.Module):
                 warnings.warn("param is None, its grad can't be activated")
             else:
                 param.requires_grad = True
-                self.reset_cache(name)
+                self.reset_cache(name, deactivate=True)
 
     def deactivate_grad(self, *args):
         """Deactivate the gradient for each of the parameters provided
@@ -274,7 +278,7 @@ class TransitModule(nn.Module):
         self.__drop_s = None
         self.__pos = None
 
-    def reset_cache(self, name=None):
+    def reset_cache(self, name=None, deactivate=False):
         """Reset the appropriate cached tensors.
 
         Cached tensors are reset to None value, selectively if a parameter name is given.
@@ -290,20 +294,20 @@ class TransitModule(nn.Module):
             return
         if name in self._pars_of_fun['duration']:
             self.__dur = None
-            if self.cache_dur:
+            if deactivate and self.cache_dur:
                 warnings.warn('duration caching deactivated because of its inclusion in the DCG')
-            self.cache_dur = False
+                self.cache_dur = False
         if name in self._pars_of_fun['position']:
-            if self.cache_pos:
-                warnings.warn('position caching deactivated because of its inclusion in the DCG')
             self.__pos = None
-            self.cache_pos = False
+            if deactivate and self.cache_pos:
+                warnings.warn('position caching deactivated because of its inclusion in the DCG')
+                self.cache_pos = False
         if name in self._pars_of_fun['drop_p'].union(self._pars_of_fun['drop_s']):
             self.__drop_p = None
             self.__drop_s = None
-            if self.cache_flux:
+            if deactivate and self.cache_flux:
                 warnings.warn('flux drop caching deactivated because of its inclusion in the DCG')
-            self.cache_flux = False
+                self.cache_flux = False
 
     def get_ldc_dim(self, data=None):
         """Return the dimensionality of the limb-darkening coefs
@@ -375,6 +379,7 @@ class TransitModule(nn.Module):
         # """
         runtime_mode = bool({k for k in kwargs if k in self._pars_of_fun['position']})
         if self.cache_pos and self.__pos is not None and not runtime_mode:
+            print('... returning cache pos vector')
             return self.__pos
         if self.time is None:
             raise RuntimeError('time attribute needs to be defined')

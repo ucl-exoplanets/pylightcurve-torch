@@ -173,19 +173,24 @@ def test_cache():
     time = timeit.timeit(lambda: tm.get_position(), number=20)
     time_cache = timeit.timeit(lambda: tm_cache.get_position(), number=20)
     assert time_cache < time / 5
+    # check that activating gradient deactivate the cache
     with pytest.warns(UserWarning):
         tm_cache.activate_grad('P')
     assert not tm_cache.cache_pos
 
+    # check that runtime computation won't affect the cached vector
     tm_cache = TransitModule(time=time_array, **params_dicts['scalar'], secondary=True, cache_pos=True)
     flux = tm_cache()
     tm_cache(i=93)
+    assert tm_cache.cache_pos
     assert (tm_cache()==flux).all()
 
     # check that setting a position parameter will update the cached vector
-    # assert not (flux==tm_cache(i=93.)).all()
-    # tm_cache.set_param('i', 91.)
-    # assert not (flux==tm_cache()).all()
+    tm_cache = TransitModule(time=time_array, **params_dicts['scalar'], secondary=True, cache_pos=True)
+    flux = tm_cache()
+    tm_cache.set_param('i', 91.)
+    assert tm_cache.cache_pos
+    assert not (flux==tm_cache()).all()
 
 
 def test_cuda():
