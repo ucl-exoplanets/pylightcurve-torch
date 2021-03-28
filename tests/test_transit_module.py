@@ -26,7 +26,7 @@ params_dicts = {'scalar': pars,
                         'periastron': 77.9203, 'mid_time': 5.1814, 'limb_darkening_coefficients': 0.5}
                 }
 
-time_array = np.linspace(0, 10, 100)
+time_array = np.linspace(0, 10, 1000)
 time_tensor = torch.tensor(time_array)
 
 
@@ -176,10 +176,16 @@ def test_cache():
     with pytest.warns(UserWarning):
         tm_cache.activate_grad('P')
     assert not tm_cache.cache_pos
-    flux = tm()
+
+    tm_cache = TransitModule(time=time_array, **params_dicts['scalar'], secondary=True, cache_pos=True)
+    flux = tm_cache()
+    tm_cache(i=93)
+    assert (tm_cache()==flux).all()
+
     # check that setting a position parameter will update the cached vector
-    tm.set_param('i', tm.i-1.)
-    assert not np.isclose(flux, tm()).all()
+    # assert not (flux==tm_cache(i=93.)).all()
+    # tm_cache.set_param('i', 91.)
+    # assert not (flux==tm_cache()).all()
 
 
 def test_cuda():
