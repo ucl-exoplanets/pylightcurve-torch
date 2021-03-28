@@ -363,7 +363,6 @@ class TransitModule(nn.Module):
             if k != 'method' and v.shape[0] > 1:
                 if batch_size == 1:
                     batch_size = v.shape[0]
-                    # print("batch_size just updated")
                 else:
                     assert batch_size == v.shape[0]
             out[k] = v
@@ -379,7 +378,6 @@ class TransitModule(nn.Module):
         # """
         runtime_mode = bool({k for k in kwargs if k in self._pars_of_fun['position']})
         if self.cache_pos and self.__pos is not None and not runtime_mode:
-            print('... returning cache pos vector')
             return self.__pos
         if self.time is None:
             raise RuntimeError('time attribute needs to be defined')
