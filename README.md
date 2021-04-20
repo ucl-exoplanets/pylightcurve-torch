@@ -2,7 +2,9 @@
 
 An exoplanet transit modelling package for deep learning applications in Pytorch.
 
-The code for orbit and flux drop computation is largely adapted from https://github.com/ucl-exoplanets/pylightcurve/ (under a MIT license). 
+See [this open publication in the Publications of the Astronomical Society of the Pacific](https://iopscience.iop.org/article/10.1088/1538-3873/abe6e8) for more details and official citation.
+
+The code for orbit and flux drop computation is adapted from [Pylightcurve](https://github.com/ucl-exoplanets/pylightcurve/).
 
 The module ```pylightcurve_torch.functional.py``` contains the functions implemented in Pytorch and computing the orbital positions, 
 transit durations and flux drops. (see [PyLightcurve repository](https://github.com/ucl-exoplanets/pylightcurve/) 
