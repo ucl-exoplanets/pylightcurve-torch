@@ -2,7 +2,7 @@
 
 An exoplanet transit modelling package for deep learning applications in Pytorch.
 
-See [this open publication in the Publications of the Astronomical Society of the Pacific](https://iopscience.iop.org/article/10.1088/1538-3873/abe6e8) for more details and official citation and [this repository to access jupyter notebook tutorials.](https://github.com/mariomorvan/pylightcurve-torch-tutorials)
+See [this open publication in the Publications of the Astronomical Society of the Pacific](https://iopscience.iop.org/article/10.1088/1538-3873/abe6e8) for more details and official citation and [jupyter notebook tutorials here.](https://github.com/mariomorvan/pylightcurve-torch-tutorials)
 
 The code for orbit and flux drop computation is adapted from [Pylightcurve](https://github.com/ucl-exoplanets/pylightcurve/).
 
