@@ -349,8 +349,6 @@ class TransitModule(nn.Module):
             else:
                 parname = k
             ext_args[parname] = kwargs[k]
-        if function in ['drop_p', 'drop_s', 'none']:
-            batch_size = self.time.shape[0]
         for k in parlist:
             if k in ext_args:
                 v = ext_args[k]
@@ -453,8 +451,8 @@ class TransitModule(nn.Module):
         d, batch_size = self.get_input_params(**kwargs, function='drop_s')
         proj_dist = self.get_proj_dist(**kwargs, orbit_type='secondary') / d['rp']
         batch_size = max(batch_size, proj_dist.shape[0])
-        out = transit_flux_drop('linear', self.time.new_zeros(batch_size, 1), 1 / d['rp'], proj_dist,
-                                precision=self.precision, n_pars=batch_size)
+        out = transit_flux_drop('linear', torch.zeros(batch_size, 1, dtype=d['rp'].dtype, device=d['rp'].device),
+                                1 / d['rp'], proj_dist, precision=self.precision, n_pars=batch_size)
         out = (1. + d['fp'] * out) / (1. + d['fp'])
         if self.cache_flux and not runtime_mode:
             self.__drop_s = out
@@ -547,12 +545,12 @@ class TransitModule(nn.Module):
                 raise ValueError('time input shape must be one of: (T,), (N, T), (1, T)')
 
             if update_shape:
-                self.__shape[1] = self.time.shape[1]
+                self.__shape[1] = data.shape[1]
                 if self.shape[0] in [None, 1]:
-                    self.__shape[0] = self.time.shape[0]
-                elif self.time.shape[0] > 1 and self.time.shape[0] != self.shape[0]:
+                    self.__shape[0] = data.shape[0]
+                elif data.shape[0] > 1 and data.shape[0] != self.shape[0]:
                     raise RuntimeError("incompatible batch dimensions between data and parameters"
-                                + f" (module's ({self.shape[0]}) != data's ({self.time.shape[0]}))")
+                                + f" (module's ({self.shape[0]}) != data's ({data.shape[0]}))")
         else:
             if name == 'ldc' or (name in PLC_ALIASES and PLC_ALIASES[name] == 'ldc'):
                 dim = self.get_ldc_dim(data)
