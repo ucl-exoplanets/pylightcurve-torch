@@ -379,8 +379,6 @@ class TransitModule(nn.Module):
         runtime_mode = bool({k for k in kwargs if k in self._pars_of_fun['position']})
         if self.cache_pos and self.__pos is not None and not runtime_mode:
             return self.__pos
-        # if self.time is None:
-        #     raise RuntimeError('time attribute needs to be defined')
         d, batch_size = self.get_input_params(**kwargs, function='position')
         x, y, z = exoplanet_orbit(d['P'], d['a'], d['e'], d['i'], d['w'], d['t0'], d['time'],
                                   ww=d['time'].new_zeros(1, 1, dtype=self.dtype), n_pars=batch_size, dtype=self.dtype)
@@ -540,12 +538,21 @@ class TransitModule(nn.Module):
 
         # Dimensionality
         if name=='time':
+            data.requires_grad = False
             if len(data.shape) == 0:
                 raise ValueError('data input must be a sized iterable object')
             if len(data.shape) == 1:
                 data = data[None, :]
             elif len(data.shape) > 2:
                 raise ValueError('time input shape must be one of: (T,), (N, T), (1, T)')
+
+            if update_shape:
+                self.__shape[1] = self.time.shape[1]
+                if self.shape[0] in [None, 1]:
+                    self.__shape[0] = self.time.shape[0]
+                elif self.time.shape[0] > 1 and self.time.shape[0] != self.shape[0]:
+                    raise RuntimeError("incompatible batch dimensions between data and parameters"
+                                + f" (module's ({self.shape[0]}) != data's ({self.time.shape[0]}))")
         else:
             if name == 'ldc' or (name in PLC_ALIASES and PLC_ALIASES[name] == 'ldc'):
                 dim = self.get_ldc_dim(data)
