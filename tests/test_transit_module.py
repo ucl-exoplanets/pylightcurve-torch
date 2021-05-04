@@ -135,6 +135,16 @@ def test_time_tensor():
     except RuntimeError:
         ...  # Caught error
 
+    # Runtime mode
+    tm = TransitModule(**params_dicts['scalar'])
+    flux = tm(time=torch.linspace(0, 10, 100))
+    assert flux.shape == (1, 100)
+    
+    tm = TransitModule(**params_dicts['scalar'])
+    flux = tm.set_time(torch.linspace(0, 10, 100))
+    flux = tm(time=torch.linspace(0, 10, 150))
+    assert flux.shape == (1, 150) 
+
 
 def test_gradients():
     tm = TransitModule(time=time_array, **params_dicts['scalar'], secondary=True)
