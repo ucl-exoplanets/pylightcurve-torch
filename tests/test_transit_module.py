@@ -10,7 +10,11 @@ from pylightcurve_torch.nn import TransitModule
 pars = {'method': "linear", 'rp': 0.0241, 'fp': 0.00001, 'P': 7.8440, 'a': 5.4069, 'e': 0.3485, 'i': 91.8170,
         'w': 77.9203, 't0': 5.1814, 'ldc': 0.1}
 
-map_dict = lambda d, f: {k: (f(v) if k != 'method' else v) for k, v in d.items()}
+
+def map_dict(d, f): return {k: (f(v) if k != 'method' else v)
+                            for k, v in d.items()}
+
+
 params_dicts = {'scalar': pars,
                 'with_int': map_dict(pars, int),
                 'np_scalar': map_dict(pars, np.array),
@@ -46,7 +50,8 @@ def test_transit_type():
     for tm in [TransitModule(),
                TransitModule(primary=True),
                TransitModule(secondary=True),
-               TransitModule(primary=False, secondary=True, epoch_type='primary')
+               TransitModule(primary=False, secondary=True,
+                             epoch_type='primary')
                ]:
         assert tm.epoch_type == 'primary'
 
@@ -92,6 +97,7 @@ def test_transit_params():
         attr = np.random.choice(list(tm._parnames))
         assert getattr(tm, attr) is None
         tm.set_params(**d)
+        tm.set_time(time_array)
 
         for i, x in enumerate([tm.proj_dist, tm.drop_p, tm.forward(), tm()]):
             assert isinstance(x, torch.Tensor)
@@ -101,6 +107,23 @@ def test_transit_params():
         # External arguments
         flux_2 = tm(**d)
         assert torch.isclose(flux_1, flux_2).all()
+
+    # Wrong Argument
+    try:
+        tm.set_param('wrong_argument', 0)
+    except RuntimeError as e:
+        ...
+    else:
+        raise RuntimeError(
+            'should raise an error because argument does not exist')
+
+    try:
+        tm(wrong_argument=0)
+    except RuntimeError as e:
+        ...
+    else:
+        raise RuntimeError(
+            'should raise an error because argument does not exist')
 
 
 def test_ldc_methods():
@@ -125,11 +148,13 @@ def test_time_tensor():
     tm.set_time(torch.linspace(0, 10, 100)[None, :].repeat(5, 1))
     tm()
 
-    tm = TransitModule(**map_dict(pars, lambda x: torch.tensor(x)[None, None].repeat(5, 1)))
+    tm = TransitModule(
+        **map_dict(pars, lambda x: torch.tensor(x)[None, None].repeat(5, 1)))
     tm.set_time(torch.linspace(0, 10, 100)[None, :].repeat(5, 1))
     tm()
 
-    tm = TransitModule(**map_dict(pars, lambda x: torch.tensor(x)[None, None].repeat(5, 1)))
+    tm = TransitModule(
+        **map_dict(pars, lambda x: torch.tensor(x)[None, None].repeat(5, 1)))
     try:
         tm.set_time(torch.linspace(0, 10, 100)[None, :].repeat(6, 1))
     except RuntimeError:
@@ -139,15 +164,16 @@ def test_time_tensor():
     tm = TransitModule(**params_dicts['scalar'])
     flux = tm(time=torch.linspace(0, 10, 100))
     assert flux.shape == (1, 100)
-    
+
     tm = TransitModule(**params_dicts['scalar'])
     flux = tm.set_time(torch.linspace(0, 10, 100))
     flux = tm(time=torch.linspace(0, 10, 150))
-    assert flux.shape == (1, 150) 
+    assert flux.shape == (1, 150)
 
 
 def test_gradients():
-    tm = TransitModule(time=time_array, **params_dicts['scalar'], secondary=True)
+    tm = TransitModule(time=time_array, **
+                       params_dicts['scalar'], secondary=True)
     for param in list(tm._parameters.keys()) + ['rp_over_rs']:
         if param == 'time':
             continue
@@ -177,8 +203,10 @@ def test_gradients():
 
 
 def test_cache():
-    tm = TransitModule(time=time_array, **params_dicts['scalar'], secondary=True)
-    tm_cache = TransitModule(time=time_array, **params_dicts['scalar'], secondary=True, cache_pos=True)
+    tm = TransitModule(time=time_array, **
+                       params_dicts['scalar'], secondary=True)
+    tm_cache = TransitModule(
+        time=time_array, **params_dicts['scalar'], secondary=True, cache_pos=True)
 
     time = timeit.timeit(lambda: tm.get_position(), number=20)
     time_cache = timeit.timeit(lambda: tm_cache.get_position(), number=20)
@@ -189,24 +217,27 @@ def test_cache():
     assert not tm_cache.cache_pos
 
     # check that runtime computation won't affect the cached vector
-    tm_cache = TransitModule(time=time_array, **params_dicts['scalar'], secondary=True, cache_pos=True)
+    tm_cache = TransitModule(
+        time=time_array, **params_dicts['scalar'], secondary=True, cache_pos=True)
     flux = tm_cache()
     tm_cache(i=93)
     assert tm_cache.cache_pos
-    assert (tm_cache()==flux).all()
+    assert (tm_cache() == flux).all()
 
     # check that setting a position parameter will update the cached vector
-    tm_cache = TransitModule(time=time_array, **params_dicts['scalar'], secondary=True, cache_pos=True)
+    tm_cache = TransitModule(
+        time=time_array, **params_dicts['scalar'], secondary=True, cache_pos=True)
     flux = tm_cache()
     tm_cache.set_param('i', 91.)
     assert tm_cache.cache_pos
-    assert not (flux==tm_cache()).all()
+    assert not (flux == tm_cache()).all()
 
 
 def test_cuda():
     if not torch.cuda.is_available():
         pytest.skip('no available gpu')
-    tm = TransitModule(time_tensor, secondary=True, **params_dicts['scalar']).cuda()
+    tm = TransitModule(time_tensor, secondary=True, **
+                       params_dicts['scalar']).cuda()
     tm()
 
     tm.cpu()
