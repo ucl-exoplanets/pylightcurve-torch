@@ -11,7 +11,7 @@ class TransitModule(nn.Module):
     _parnames = ['method', 'P', 'i', 'e', 'a', 'rp', 'fp', 't0', 'w', 'ldc']
     _authorised_parnames = _parnames + list(PLC_ALIASES.keys())
     _methods_dim = {'linear': 1, 'sqrt': 2, 'quad': 2, 'claret': 4}
-    _pars_of_fun = {'position': {'P', 'i', 'e', 'a', 't0', 'w'},
+    _pars_of_fun = {'position': {'time', 'P', 'i', 'e', 'a', 't0', 'w'},
                     'duration': {'i', 'rp', 'P', 'a', 'i', 'e', 'w'},
                     'drop_p': {'method', 'ldc', 'rp'},
                     'drop_s': {'fp', 'rp'}}
@@ -379,11 +379,11 @@ class TransitModule(nn.Module):
         runtime_mode = bool({k for k in kwargs if k in self._pars_of_fun['position']})
         if self.cache_pos and self.__pos is not None and not runtime_mode:
             return self.__pos
-        if self.time is None:
-            raise RuntimeError('time attribute needs to be defined')
+        # if self.time is None:
+        #     raise RuntimeError('time attribute needs to be defined')
         d, batch_size = self.get_input_params(**kwargs, function='position')
-        x, y, z = exoplanet_orbit(d['P'], d['a'], d['e'], d['i'], d['w'], d['t0'], self.time,
-                                  ww=self.time.new_zeros(1, 1, dtype=self.dtype), n_pars=batch_size, dtype=self.dtype)
+        x, y, z = exoplanet_orbit(d['P'], d['a'], d['e'], d['i'], d['w'], d['t0'], d['time'],
+                                  ww=d['time'].new_zeros(1, 1, dtype=self.dtype), n_pars=batch_size, dtype=self.dtype)
 
         out = x * self._pos_factor(), y * self._pos_factor(), z * self._pos_factor()
         if self.cache_pos and not runtime_mode:
@@ -539,12 +539,20 @@ class TransitModule(nn.Module):
             data = torch.tensor(value, dtype=self.dtype, requires_grad=False)
 
         # Dimensionality
-        if name == 'ldc' or (name in PLC_ALIASES and PLC_ALIASES[name] == 'ldc'):
-            dim = self.get_ldc_dim(data)
+        if name=='time':
+            if len(data.shape) == 0:
+                raise ValueError('data input must be a sized iterable object')
+            if len(data.shape) == 1:
+                data = data[None, :]
+            elif len(data.shape) > 2:
+                raise ValueError('time input shape must be one of: (T,), (N, T), (1, T)')
         else:
-            dim = 1
+            if name == 'ldc' or (name in PLC_ALIASES and PLC_ALIASES[name] == 'ldc'):
+                dim = self.get_ldc_dim(data)
+            else:
+                dim = 1
+            data = data.view(-1, dim)
 
-        data = data.view(-1, dim)
         if update_shape:
             if self.shape[0] in [None, 1]:
                 self.__shape[0] = data.shape[0]
