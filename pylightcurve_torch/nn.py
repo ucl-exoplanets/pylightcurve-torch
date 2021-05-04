@@ -349,7 +349,7 @@ class TransitModule(nn.Module):
             else:
                 parname = k
             ext_args[parname] = kwargs[k]
-        if function in ['dop_p', 'drop_s', 'none']:
+        if function in ['drop_p', 'drop_s', 'none']:
             batch_size = self.time.shape[0]
         for k in parlist:
             if k in ext_args:
