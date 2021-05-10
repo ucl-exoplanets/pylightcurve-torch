@@ -8,10 +8,10 @@ from .functional import exoplanet_orbit, transit_duration, transit_flux_drop
 
 
 class TransitModule(nn.Module):
-    _parnames = ['method', 'P', 'i', 'e', 'a', 'rp', 'fp', 't0', 'w', 'ldc']
+    _parnames = ['method', 'P', 'i', 'e', 'a', 'rp', 'fp', 't0', 'w', 'ldc', 'time']
     _authorised_parnames = _parnames + list(PLC_ALIASES.keys())
     _methods_dim = {'linear': 1, 'sqrt': 2, 'quad': 2, 'claret': 4}
-    _pars_of_fun = {'position': {'P', 'i', 'e', 'a', 't0', 'w'},
+    _pars_of_fun = {'position': {'time', 'P', 'i', 'e', 'a', 't0', 'w'},
                     'duration': {'i', 'rp', 'P', 'a', 'i', 'e', 'w'},
                     'drop_p': {'method', 'ldc', 'rp'},
                     'drop_s': {'fp', 'rp'}}
@@ -67,7 +67,8 @@ class TransitModule(nn.Module):
         self.primary = bool(primary)
         self.secondary = bool(secondary)
         if not self.primary and not self.secondary:
-            raise RuntimeError("transit can't be neither primary nor secondary")
+            raise RuntimeError(
+                "transit can't be neither primary nor secondary")
 
         if epoch_type is None:
             self.epoch_type = ('primary' if self.primary else 'secondary')
@@ -76,9 +77,11 @@ class TransitModule(nn.Module):
                 self.epoch_type = epoch_type.strip().lower()
                 assert self.epoch_type in ('primary', 'secondary')
             except AttributeError:
-                raise TypeError("epoch_type must be a str, one of 'primary' and 'secondary' ")
+                raise TypeError(
+                    "epoch_type must be a str, one of 'primary' and 'secondary' ")
             except AssertionError:
-                raise ValueError("epoch_type should be one of: 'primary', 'secondary' ")
+                raise ValueError(
+                    "epoch_type should be one of: 'primary', 'secondary' ")
         self.precision = precision
         if dtype is None:
             self.dtype = torch.get_default_dtype()
@@ -141,7 +144,8 @@ class TransitModule(nn.Module):
         :return:
         """
         if name not in self._authorised_parnames:
-            raise RuntimeError(f"parameter {name} not in authorized model's list")
+            raise RuntimeError(
+                f"parameter {name} not in authorized model's list")
 
         if name == "method":
             self.set_method(value)
@@ -183,7 +187,8 @@ class TransitModule(nn.Module):
         :return: None
         """
         if data is None:
-            raise ValueError("time data shouldn't be None. For resetting it use reset_time method")
+            raise ValueError(
+                "time data shouldn't be None. For resetting it use reset_time method")
         if not isinstance(data, torch.Tensor):
             data = torch.tensor(data)
         if len(data.shape) == 0:
@@ -191,8 +196,10 @@ class TransitModule(nn.Module):
         if len(data.shape) == 1:
             data = data[None, :]
         elif len(data.shape) > 2:
-            raise ValueError('time input shape must be one of: (T,), (N, T), (1, T)')
-        setattr(self, 'time', nn.Parameter(data.detach().to(self.dtype), requires_grad=False))
+            raise ValueError(
+                'time input shape must be one of: (T,), (N, T), (1, T)')
+        setattr(self, 'time', nn.Parameter(
+            data.detach().to(self.dtype), requires_grad=False))
         # Updating shape
         self.__shape[1] = self.time.shape[1]
         if self.shape[0] in [None, 1]:
@@ -221,7 +228,8 @@ class TransitModule(nn.Module):
         """
         for name in args:
             if name not in self._authorised_parnames:
-                raise RuntimeError(f"parameter {name} not in authorized model's list")
+                raise RuntimeError(
+                    f"parameter {name} not in authorized model's list")
             param = getattr(self, name)
             if param is None:
                 warnings.warn("param is None, its grad can't be activated")
@@ -237,7 +245,8 @@ class TransitModule(nn.Module):
         """
         for name in args:
             if name not in self._authorised_parnames:
-                raise RuntimeError(f"parameter {name} not in authorized model's list")
+                raise RuntimeError(
+                    f"parameter {name} not in authorized model's list")
             param = getattr(self, name)
             if param is None:
                 warnings.warn("param is None, its grad can't be activated")
@@ -251,7 +260,8 @@ class TransitModule(nn.Module):
         :return:
         """
         if name not in self._authorised_parnames:
-            raise RuntimeError(f"parameter {name} not in authorized model's list")
+            raise RuntimeError(
+                f"parameter {name} not in authorized model's list")
         setattr(self, name, None)
         self.reset_cache(name)
 
@@ -295,18 +305,21 @@ class TransitModule(nn.Module):
         if name in self._pars_of_fun['duration']:
             self.__dur = None
             if deactivate and self.cache_dur:
-                warnings.warn('duration caching deactivated because of its inclusion in the DCG')
+                warnings.warn(
+                    'duration caching deactivated because of its inclusion in the DCG')
                 self.cache_dur = False
         if name in self._pars_of_fun['position']:
             self.__pos = None
             if deactivate and self.cache_pos:
-                warnings.warn('position caching deactivated because of its inclusion in the DCG')
+                warnings.warn(
+                    'position caching deactivated because of its inclusion in the DCG')
                 self.cache_pos = False
         if name in self._pars_of_fun['drop_p'].union(self._pars_of_fun['drop_s']):
             self.__drop_p = None
             self.__drop_s = None
             if deactivate and self.cache_flux:
-                warnings.warn('flux drop caching deactivated because of its inclusion in the DCG')
+                warnings.warn(
+                    'flux drop caching deactivated because of its inclusion in the DCG')
                 self.cache_flux = False
 
     def get_ldc_dim(self, data=None):
@@ -322,7 +335,8 @@ class TransitModule(nn.Module):
             if len(data.shape) > 1:
                 dim = data.shape[-1]
                 if dim not in list(self._methods_dim.values()):
-                    raise RuntimeError("could not retrieve a correct ldc dimensionality given param's shape")
+                    raise RuntimeError(
+                        "could not retrieve a correct ldc dimensionality given param's shape")
             else:
                 warnings.warn("Neither of method nor ldc shape seem to provide a clear ldc dimensionality."
                               "It is advised to provide either method str arg or 2D-shaped ldc inputs")
@@ -348,9 +362,10 @@ class TransitModule(nn.Module):
                 parname = PLC_ALIASES[k]
             else:
                 parname = k
+            if not parname in self._parnames:
+                raise RuntimeError(
+                    f"parameter {parname} not in authorized model's list")
             ext_args[parname] = kwargs[k]
-        if function in ['dop_p', 'drop_s', 'none']:
-            batch_size = self.time.shape[0]
         for k in parlist:
             if k in ext_args:
                 v = ext_args[k]
@@ -376,14 +391,13 @@ class TransitModule(nn.Module):
         :param kwargs: optional external parameters to be provided as key/values pairs and to replace module's pars
         :return: tuple of position tensors x, y, z, each of shape (N, T)
         # """
-        runtime_mode = bool({k for k in kwargs if k in self._pars_of_fun['position']})
+        runtime_mode = bool(
+            {k for k in kwargs if k in self._pars_of_fun['position']})
         if self.cache_pos and self.__pos is not None and not runtime_mode:
             return self.__pos
-        if self.time is None:
-            raise RuntimeError('time attribute needs to be defined')
         d, batch_size = self.get_input_params(**kwargs, function='position')
-        x, y, z = exoplanet_orbit(d['P'], d['a'], d['e'], d['i'], d['w'], d['t0'], self.time,
-                                  ww=self.time.new_zeros(1, 1, dtype=self.dtype), n_pars=batch_size, dtype=self.dtype)
+        x, y, z = exoplanet_orbit(d['P'], d['a'], d['e'], d['i'], d['w'], d['t0'], d['time'],
+                                  ww=d['time'].new_zeros(1, 1, dtype=self.dtype), n_pars=batch_size, dtype=self.dtype)
 
         out = x * self._pos_factor(), y * self._pos_factor(), z * self._pos_factor()
         if self.cache_pos and not runtime_mode:
@@ -414,7 +428,8 @@ class TransitModule(nn.Module):
         if any model parameter is provided while calling this method, no caching will take place
         :return: (N,1)-shaped tensor of durations
         """
-        runtime_mode = {k for k in kwargs if k in self._pars_of_fun['duration']}
+        runtime_mode = {
+            k for k in kwargs if k in self._pars_of_fun['duration']}
         if self.cache_dur and self.__dur is not None and not runtime_mode:
             return self.__dur
         d, batch_size = self.get_input_params(**kwargs, function='duration')
@@ -430,7 +445,8 @@ class TransitModule(nn.Module):
         :param kwargs: additional functions argument to replace the class' one, disabling caching where necessary
         :return: (N, T)-shaped tensor of flux_drop drop values
         """
-        runtime_mode = bool([k for k in kwargs if k in self._pars_of_fun['drop_p']])
+        runtime_mode = bool(
+            [k for k in kwargs if k in self._pars_of_fun['drop_p']])
         if self.cache_flux and self.__drop_p is not None and not runtime_mode:
             return self.__drop_p
         proj_dist = self.get_proj_dist(**kwargs, orbit_type='primary')
@@ -449,14 +465,16 @@ class TransitModule(nn.Module):
         :param kwargs: additional functions argument to replace the class' one, disabling caching where necessary
         :return: (N, T)-shaped tensor of flux drop values
         """
-        runtime_mode = bool([k for k in kwargs if k in self._pars_of_fun['drop_s']])
+        runtime_mode = bool(
+            [k for k in kwargs if k in self._pars_of_fun['drop_s']])
         if self.cache_flux and self.__drop_s is not None and not runtime_mode:
             return self.__drop_s
         d, batch_size = self.get_input_params(**kwargs, function='drop_s')
-        proj_dist = self.get_proj_dist(**kwargs, orbit_type='secondary') / d['rp']
+        proj_dist = self.get_proj_dist(
+            **kwargs, orbit_type='secondary') / d['rp']
         batch_size = max(batch_size, proj_dist.shape[0])
-        out = transit_flux_drop('linear', self.time.new_zeros(batch_size, 1), 1 / d['rp'], proj_dist,
-                                precision=self.precision, n_pars=batch_size)
+        out = transit_flux_drop('linear', torch.zeros(batch_size, 1, dtype=d['rp'].dtype, device=d['rp'].device),
+                                1 / d['rp'], proj_dist, precision=self.precision, n_pars=batch_size)
         out = (1. + d['fp'] * out) / (1. + d['fp'])
         if self.cache_flux and not runtime_mode:
             self.__drop_s = out
@@ -539,12 +557,30 @@ class TransitModule(nn.Module):
             data = torch.tensor(value, dtype=self.dtype, requires_grad=False)
 
         # Dimensionality
-        if name == 'ldc' or (name in PLC_ALIASES and PLC_ALIASES[name] == 'ldc'):
-            dim = self.get_ldc_dim(data)
-        else:
-            dim = 1
+        if name == 'time':
+            data.requires_grad = False
+            if len(data.shape) == 0:
+                raise ValueError('data input must be a sized iterable object')
+            if len(data.shape) == 1:
+                data = data[None, :]
+            elif len(data.shape) > 2:
+                raise ValueError(
+                    'time input shape must be one of: (T,), (N, T), (1, T)')
 
-        data = data.view(-1, dim)
+            if update_shape:
+                self.__shape[1] = data.shape[1]
+                if self.shape[0] in [None, 1]:
+                    self.__shape[0] = data.shape[0]
+                elif data.shape[0] > 1 and data.shape[0] != self.shape[0]:
+                    raise RuntimeError("incompatible batch dimensions between data and parameters"
+                                       + f" (module's ({self.shape[0]}) != data's ({data.shape[0]}))")
+        else:
+            if name == 'ldc' or (name in PLC_ALIASES and PLC_ALIASES[name] == 'ldc'):
+                dim = self.get_ldc_dim(data)
+            else:
+                dim = 1
+            data = data.view(-1, dim)
+
         if update_shape:
             if self.shape[0] in [None, 1]:
                 self.__shape[0] = data.shape[0]
@@ -561,7 +597,8 @@ class TransitModule(nn.Module):
         :return:
         """
         if not (value is None or value in self._methods_dim):
-            raise ValueError(f'if stated limb darkening method must be in {tuple(self._methods_dim.keys())}')
+            raise ValueError(
+                f'if stated limb darkening method must be in {tuple(self._methods_dim.keys())}')
         if self.ldc is not None and self.ldc.shape[-1] != self._methods_dim[value]:
             warnings.warn(f'ldc method ({value}) incompatible with ldc tensor dimension ({self.ldc.shape[-1]}). '
                           + 'Ressetting ldc coefs.')
