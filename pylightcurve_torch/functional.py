@@ -28,12 +28,147 @@ SOFTWARE.
 """
 import torch
 from torch import Tensor
+from typing import Optional, Tuple
 
 from ._constants import gauss_table, PI, EPS, MAX_RATIO_RADII, MAX_ITERATIONS, ORBIT_PRECISION
 
 
-def exoplanet_orbit(period, sma_over_rs, eccentricity, inclination, periastron, mid_time, time_array,
-                    ww=None, n_pars=None, dtype=None):
+# ==============================
+# Public Functions
+# ==============================
+
+def transit(method:str, limb_darkening_coefficients:Tensor, rp_over_rs:Tensor, period:Tensor, sma_over_rs:Tensor, eccentricity:Tensor, inclination:Tensor, periastron:Tensor,
+            mid_time:Tensor, time_array:Tensor, precision=3, n_pars=None, dtype=torch.float64):
+    """Compute the light curve of a primary transit event.
+    
+    The function computes the light curve of a primary transit event for N different sets of
+         parameters and T time steps.
+
+    Args:
+        method (str): limb-darkening law (available methods: 'claret', 'quad', 'sqrt' or 'linear')
+        limb_darkening_coefficients (Tensor): A 2D tensor of shape (N, M) where 'M' is the number of limb darkening coefficients. 
+            Each row represents a different set of limb darkening coefficients.
+        rp_over_rs (Tensor): (1,1) or (N, 1) shape tensor of Rp/Rs values - unitless
+        period (Tensor): (1,1) or (N, 1) shape tensor of period values - unit = days
+        sma_over_rs (Tensor): (1,1) or (N, 1) shape tensor of semi-major-axis values - unitless
+        eccentricity (Tensor): (1,1) or (N, 1) shape tensor of eccentricity values - unitless
+        inclination (Tensor): (1,1) or (N, 1) shape tensor of inclination values - unit = degrees
+        periastron (Tensor): (1,1) or (N, 1) shape tensor of periastron values - unit = degrees
+        mid_time (Tensor): (1,1) or (N, 1) shape tensor of mid-transit time values - unit = days
+        time_array (Tensor): Tensor of time values with shape  (1, T) or (N, T) - unit = days
+        precision (int, optional):integer between 1 and 6. Defaults to 3.
+        n_pars (int, optional): integer specifying the batch size to resolve ambiguous cases
+        dtype (dtype, optional): _description_. Defaults to torch.float64.
+
+    Returns:
+        light_curve (Tensor): Tensor of shape (N, T) of stellar flux for the provided time and transit parameters.
+    """
+
+    x, y, z = exoplanet_orbit(period, sma_over_rs, eccentricity, inclination, periastron, mid_time, time_array,
+                              n_pars=n_pars, dtype=dtype)
+    projected_distance = torch.where(x < 0., torch.ones_like(x, device=x.device, dtype=dtype) * MAX_RATIO_RADII,
+                                     torch.sqrt(y ** 2 + z ** 2))
+
+    return _transit_flux_drop(method, limb_darkening_coefficients, rp_over_rs, projected_distance, precision=precision,
+                             n_pars=n_pars)
+
+
+def eclipse(fp_over_fs:Tensor, rp_over_rs:Tensor, period:Tensor, sma_over_rs:Tensor, eccentricity:Tensor, inclination:Tensor, periastron:Tensor, mid_time:Tensor, time_array:Tensor,
+            precision:int=3, n_pars:int=None, dtype=torch.float64):
+    """
+    Compute the flux increase during a secondary eclipse event.
+
+    The function computes the light curve of a secondary eclipse event for N different sets of
+    parameters and T time steps. 
+    Attention, the mid_time parameter corresponds to the primary transit. You can use 'eclipse_centered' function to
+    compute the light curve with the mid time properly set for the secondary eclipse.
+
+    Args:
+        fp_over_fs (Tensor): (1,1) or (N, 1) shape tensor of Fp/Fs values - unitless
+        rp_over_rs (Tensor): (1,1) or (N, 1) shape tensor of Rp/Rs values - unitless
+        period (Tensor): (1,1) or (N, 1) shape tensor of period values - unit = days
+        sma_over_rs (Tensor): (1,1) or (N, 1) shape tensor of semi-major-axis values - unitless
+        eccentricity (Tensor): (1,1) or (N, 1) shape tensor of eccentricity values - unitless
+        inclination (Tensor): (1,1) or (N, 1) shape tensor of inclination values - unit = degrees
+        periastron (Tensor): (1,1) or (N, 1) shape tensor of periastron values - unit = degrees
+        mid_time (Tensor): (1,1) or (N, 1) shape tensor of mid-transit time values - unit = days
+        time_array (Tensor): Tensor of time values with shape  (1, T) or (N, T) - unit = days
+        precision (int, optional): integer between 1 and 6. Defaults to 3.
+        n_pars (int, optional): integer specifying the batch size to resolve ambiguous cases
+        dtype (dtype, optional): _description_. Defaults to torch.float64.
+
+    Returns:
+        light_curve (Tensor): Tensor of shape (N, T) of stellar flux for the provided time and eclipse parameters.
+    """
+    x, y, z = exoplanet_orbit(period, - sma_over_rs / rp_over_rs, eccentricity, inclination, periastron,
+                              mid_time, time_array, n_pars=n_pars, dtype=dtype)
+    projected_distance = torch.where(x < 0, torch.ones_like(x, dtype=dtype, device=x.device) * MAX_RATIO_RADII,
+                                     torch.sqrt(y ** 2 + z ** 2))
+    n_pars = max(n_pars, projected_distance.shape[0],
+                 fp_over_fs.shape[0] if isinstance(fp_over_fs, Tensor) else 1)
+
+    return (1. + fp_over_fs * _transit_flux_drop('linear', time_array.new_zeros(n_pars, 1), 1. / rp_over_rs,
+                                                projected_distance, precision=precision,
+                                                n_pars=n_pars)) / (1. + fp_over_fs)
+
+
+def eclipse_centered(fp_over_fs:Tensor, rp_over_rs:Tensor, period:Tensor, sma_over_rs:Tensor, eccentricity:Tensor, inclination:Tensor, periastron:Tensor, mid_time:Tensor, time_array:Tensor,
+            precision:int=3, n_pars:int=None, dtype=torch.float64):
+    """
+    Compute the flux increase during a secondary transit event.
+
+    The function computes the light curve of a secondary eclipse event for N different sets of
+    parameters and T time steps. 
+    Attention, the mid_time parameter corresponds to the secondary transit. You can use 'eclipse_centered' function to
+    compute the light curve with the mid time set for the primary transit.
+
+    Args:
+        fp_over_fs (Tensor): (1,1) or (N, 1) shape tensor of Fp/Fs values - unitless
+        rp_over_rs (Tensor): (1,1) or (N, 1) shape tensor of Rp/Rs values - unitless
+        period (Tensor): (1,1) or (N, 1) shape tensor of period values - unit = days
+        sma_over_rs (Tensor): (1,1) or (N, 1) shape tensor of semi-major-axis values - unitless
+        eccentricity (Tensor): (1,1) or (N, 1) shape tensor of eccentricity values - unitless
+        inclination (Tensor): (1,1) or (N, 1) shape tensor of inclination values - unit = degrees
+        periastron (Tensor): (1,1) or (N, 1) shape tensor of periastron values - unit = degrees
+        mid_time (Tensor): (1,1) or (N, 1) shape tensor of mid-transit time values - unit = days
+        time_array (Tensor): Tensor of time values with shape  (1, T) or (N, T) - unit = days
+        precision (int, optional): integer between 1 and 6. Defaults to 3.
+        n_pars (int, optional): integer specifying the batch size to resolve ambiguous cases
+        dtype (dtype, optional): _description_. Defaults to torch.float64.
+
+    Returns:
+        light_curve (Tensor): Tensor of shape (N, T) of stellar flux for the provided time and eclipse parameters.
+    """
+    return eclipse(fp_over_fs, rp_over_rs, period, -sma_over_rs, eccentricity, inclination, periastron + 180.,
+                   mid_time, time_array, precision, n_pars, dtype)
+
+
+
+
+def exoplanet_orbit(period: Tensor, sma_over_rs: Tensor, eccentricity: Tensor, 
+                    inclination: Tensor, periastron: Tensor, mid_time: Tensor, 
+                    time_array: Tensor, ww: Optional[Tensor] = None, 
+                    n_pars: Optional[int] = None, dtype: Optional[torch.dtype] = None) -> Tuple[Tensor, Tensor, Tensor]:
+    """
+    Compute the orbit of an exoplanet.
+
+    Args:
+        period (Tensor): (1,1) or (N, 1) shape tensor of period values - unit = days
+        sma_over_rs (Tensor): (1,1) or (N, 1) shape tensor of semi-major-axis values - unitless
+        eccentricity (Tensor): (1,1) or (N, 1) shape tensor of eccentricity values - unitless
+        inclination (Tensor): (1,1) or (N, 1) shape tensor of inclination values - unit = degrees
+        periastron (Tensor): (1,1) or (N, 1) shape tensor of periastron values - unit = degrees
+        mid_time (Tensor): (1,1) or (N, 1) shape tensor of mid-transit time values - unit = days
+        time_array (Tensor): Tensor of time values with shape  (1, T) or (N, T) - unit = days
+        ww (Tensor, optional): Tensor of argument of periastron values - unit = degrees. Defaults to None.
+        n_pars (int, optional): integer specifying the batch size to resolve ambiguous cases
+        dtype (dtype, optional): _description_. Defaults to None.
+
+    Returns:
+        Tuple[Tensor, Tensor, Tensor]: Tensors of x, y, z coordinates of the exoplanet's orbit.
+    """
+    # generate docstring
+
     inclination = inclination * PI / 180.
     periastron = periastron * PI / 180.
     if ww is None:
@@ -42,7 +177,7 @@ def exoplanet_orbit(period, sma_over_rs, eccentricity, inclination, periastron, 
 
     aa = torch.where(periastron < PI / 2., PI / 2. - periastron, 5. * PI / 2. - periastron)
     bb = 2 * torch.atan(torch.sqrt((1. - eccentricity) / (1. + eccentricity)) * torch.tan(aa / 2.))
-    if isinstance(bb, torch.Tensor):
+    if isinstance(bb, Tensor):
         bb[bb < 0.] += 2. * PI
 
     mid_time = mid_time - (period / 2. / PI) * (bb - eccentricity * torch.sin(bb))
@@ -74,14 +209,31 @@ def exoplanet_orbit(period, sma_over_rs, eccentricity, inclination, periastron, 
     return [x, y, z]
 
 
-def transit_duration(rp_over_rs, period, sma_over_rs, inclination, eccentricity, periastron, **kwargs):
+def transit_duration(rp_over_rs: Tensor, period: Tensor, sma_over_rs: Tensor, 
+                     inclination: Tensor, eccentricity: Tensor, periastron: Tensor, 
+                     **kwargs) -> Tensor:
+    """
+    Compute the duration of a primary transit.
+
+    Args:
+        rp_over_rs (Tensor): Planet radius over star radius - unitless
+        period (Tensor): Orbital period - unit = days
+        sma_over_rs (Tensor): Semi-major axis over star radius - unitless
+        inclination (Tensor): Orbital inclination - unit = degrees
+        eccentricity (Tensor): Orbital eccentricity - unitless
+        periastron (Tensor): Argument of periastron - unit = degrees
+        **kwargs: Additional arguments
+
+    Returns:
+        Tensor: Tensor of shape (N, 1) of transit duration for the provided parameters.
+    """
     ww = periastron * PI / 180.
     ii = inclination * PI / 180.
     ee = eccentricity
     aa = sma_over_rs
     ro_pt = (1. - ee ** 2) / (1. + ee * torch.sin(ww))
     b_pt = aa * ro_pt * torch.cos(ii)
-    if isinstance(b_pt, torch.Tensor):
+    if isinstance(b_pt, Tensor):
         b_pt[b_pt > 1.] = 0.5
     s_ps = 1. + rp_over_rs
     df = torch.asin(torch.sqrt((s_ps ** 2 - b_pt ** 2) / ((aa ** 2) * (ro_pt ** 2) - b_pt ** 2)))
@@ -89,15 +241,54 @@ def transit_duration(rp_over_rs, period, sma_over_rs, inclination, eccentricity,
     return abs_value
 
 
-def eclipse_duration(rp_over_rs, period, sma_over_rs, inclination, eccentricity, periastron, **kwargs):
+def eclipse_duration(rp_over_rs: Tensor, period: Tensor, sma_over_rs: Tensor, 
+                     inclination: Tensor, eccentricity: Tensor, periastron: Tensor, 
+                     **kwargs) -> Tensor:
+    """
+    Compute the duration of a secondary eclipse.
+
+    Args:
+        rp_over_rs (Tensor): Planet radius over star radius - unitless
+        period (Tensor): Orbital period - unit = days
+        sma_over_rs (Tensor): Semi-major axis over star radius - unitless
+        inclination (Tensor): Orbital inclination - unit = degrees
+        eccentricity (Tensor): Orbital eccentricity - unitless
+        periastron (Tensor): Argument of periastron - unit = degrees
+        **kwargs: Additional arguments
+
+    Returns:
+        Tensor: Tensor of shape (N, 1) of eclipse duration for the provided parameters.
+    """
     return transit_duration(rp_over_rs, period, -sma_over_rs, inclination, eccentricity, periastron)
 
 
-def eclipse_centered_duration(rp_over_rs, period, sma_over_rs, inclination, eccentricity, periastron, **kwargs):
+def eclipse_centered_duration(rp_over_rs: Tensor, period: Tensor, sma_over_rs: Tensor, 
+                              inclination: Tensor, eccentricity: Tensor, periastron: Tensor, 
+                              **kwargs) -> Tensor:
+    """
+    Compute the duration of the eclipse centered.
+
+    Args:
+        rp_over_rs (Tensor): Planet radius over star radius - unitless
+        period (Tensor): Orbital period - unit = days
+        sma_over_rs (Tensor): Semi-major axis over star radius - unitless
+        inclination (Tensor): Orbital inclination - unit = degrees
+        eccentricity (Tensor): Orbital eccentricity - unitless
+        periastron (Tensor): Argument of periastron - unit = degrees
+        **kwargs: Additional arguments
+
+    Returns:
+        Tensor: Tensor of shape (N, 1) of eclipse centered duration for the provided parameters.
+    """
     return transit_duration(rp_over_rs, period, sma_over_rs, inclination, eccentricity, periastron + 180.)
 
 
-def integral_r_claret(limb_darkening_coefficients, r):
+# ==============================
+# Internal Functions
+# ==============================
+
+
+def _integral_r_claret(limb_darkening_coefficients, r):
     a1, a2, a3, a4 = limb_darkening_coefficients.transpose(1, 0)
     mu44 = 1. - r * r
     mu24 = torch.sqrt(mu44)
@@ -109,7 +300,7 @@ def integral_r_claret(limb_darkening_coefficients, r):
            - (2. * a4 / 8.) * mu44 ** 2
 
 
-def num_claret(r, limb_darkening_coefficients, rprs, z):
+def _num_claret(r, limb_darkening_coefficients, rprs, z):
     a1, a2, a3, a4 = limb_darkening_coefficients.transpose(1, 0)
     rsq = r ** 2
     mu44 = 1. - rsq
@@ -119,41 +310,39 @@ def num_claret(r, limb_darkening_coefficients, rprs, z):
            * r * torch.acos(torch.clamp((-rprs ** 2 + z * z + rsq) / (2. * z * r), min=-1. + EPS, max=1. - EPS))
 
 
-def integral_r_f_claret(limb_darkening_coefficients, rprs, z, r1, r2, precision=3):
-    return gauss_numerical_integration(num_claret, r1, r2, precision, limb_darkening_coefficients, rprs, z)
+def _integral_r_f_claret(limb_darkening_coefficients, rprs, z, r1, r2, precision=3):
+    return _gauss_numerical_integration(_num_claret, r1, r2, precision, limb_darkening_coefficients, rprs, z)
 
 
 # integral definitions for linear method
 
-
-def integral_r_linear(limb_darkening_coefficients, r):
+def _integral_r_linear(limb_darkening_coefficients, r):
     a1 = limb_darkening_coefficients[:, 0]
     musq = 1. - r ** 2
     return (-1. / 6.) * musq * (3. + a1 * (-3. + 2. * torch.sqrt(musq)))
 
 
-def num_linear(r, limb_darkening_coefficients, rprs, z):
+def _num_linear(r, limb_darkening_coefficients, rprs, z):
     a1 = limb_darkening_coefficients[:, 0]
     rsq = r ** 2
     return (1. - a1 * (1. - torch.sqrt(1. - rsq))) \
            * r * torch.acos(torch.clamp((-rprs ** 2 + z ** 2 + rsq) / (2. * z * r), min=-1 + EPS, max=1. - EPS))
 
 
-def integral_r_f_linear(limb_darkening_coefficients, rprs, z, r1, r2, precision=3):
-    return gauss_numerical_integration(num_linear, r1, r2, precision, limb_darkening_coefficients, rprs, z)
+def _integral_r_f_linear(limb_darkening_coefficients, rprs, z, r1, r2, precision=3):
+    return _gauss_numerical_integration(_num_linear, r1, r2, precision, limb_darkening_coefficients, rprs, z)
 
 
 # integral definitions for quadratic method
 
-
-def integral_r_quad(limb_darkening_coefficients, r):
+def _integral_r_quad(limb_darkening_coefficients, r):
     a1, a2 = limb_darkening_coefficients.transpose(1, 0)
     musq = 1. - r ** 2
     mu = torch.sqrt(musq)
     return (1. / 12.) * (-4. * (a1 + 2. * a2) * mu * musq + 6. * (-1. + a1 + a2) * musq + 3. * a2 * musq * musq)
 
 
-def num_quad(r, limb_darkening_coefficients, rprs, z):
+def _num_quad(r, limb_darkening_coefficients, rprs, z):
     a1, a2 = limb_darkening_coefficients.transpose(1, 0)
     rsq = r ** 2
     cc = 1. - torch.sqrt(1. - rsq)
@@ -161,21 +350,20 @@ def num_quad(r, limb_darkening_coefficients, rprs, z):
            * r * torch.acos(torch.clamp((-rprs ** 2 + z ** 2 + rsq) / (2. * z * r), min=-1. + EPS, max=1. - EPS))
 
 
-def integral_r_f_quad(limb_darkening_coefficients, rprs, z, r1, r2, precision=3):
-    return gauss_numerical_integration(num_quad, r1, r2, precision, limb_darkening_coefficients, rprs, z)
+def _integral_r_f_quad(limb_darkening_coefficients, rprs, z, r1, r2, precision=3):
+    return _gauss_numerical_integration(_num_quad, r1, r2, precision, limb_darkening_coefficients, rprs, z)
 
 
 # integral definitions for square root method
 
-
-def integral_r_sqrt(limb_darkening_coefficients, r):
+def _integral_r_sqrt(limb_darkening_coefficients, r):
     a1, a2 = limb_darkening_coefficients.transpose(1, 0)
     musq = 1. - r ** 2
     mu = torch.sqrt(musq)
     return ((-2. / 5.) * a2 * torch.sqrt(mu) - (1. / 3.) * a1 * mu + (1. / 2.) * (-1 + a1 + a2)) * musq
 
 
-def num_sqrt_torch(r, limb_darkening_coefficients, rprs, z):
+def _num_sqrt_torch(r, limb_darkening_coefficients, rprs, z):
     a1, a2 = limb_darkening_coefficients.transpose(1, 0)
     rsq = r ** 2
     mu = torch.sqrt(1. - rsq)
@@ -183,41 +371,16 @@ def num_sqrt_torch(r, limb_darkening_coefficients, rprs, z):
             * r * torch.acos(torch.clamp((-rprs ** 2 + z ** 2 + rsq) / (2. * z * r), min=-1. + EPS, max=1. - EPS)))
 
 
-def integral_r_f_sqrt_torch(limb_darkening_coefficients, rprs, z, r1, r2, precision=3):
-    return gauss_numerical_integration(num_sqrt_torch, r1, r2, precision, limb_darkening_coefficients, rprs, z)
+def _integral_r_f_sqrt_torch(limb_darkening_coefficients, rprs, z, r1, r2, precision=3):
+    return _gauss_numerical_integration(_num_sqrt_torch, r1, r2, precision, limb_darkening_coefficients, rprs, z)
 
 
-# dictionaries containing the different methods,
-# if you define a new method, include the functions in the dictionary as well
-
-integral_r = {
-    'claret': integral_r_claret,
-    'linear': integral_r_linear,
-    'quad': integral_r_quad,
-    'sqrt': integral_r_sqrt
-}
-
-integral_r_f = {
-    'claret': integral_r_f_claret,
-    'linear': integral_r_f_linear,
-    'quad': integral_r_f_quad,
-    'sqrt': integral_r_f_sqrt_torch,
-}
-
-num = {
-    'claret': num_claret,
-    'linear': num_linear,
-    'quad': num_quad,
-    'sqrt': num_sqrt_torch
-}
+def _integral_centred(method, limb_darkening_coefficients, rprs, ww1, ww2):
+    return (_integral_r[method](limb_darkening_coefficients, rprs)
+            - _integral_r[method](limb_darkening_coefficients, rprs.new_zeros(1))) * torch.abs(ww2 - ww1)
 
 
-def integral_centred(method, limb_darkening_coefficients, rprs, ww1, ww2):
-    return (integral_r[method](limb_darkening_coefficients, rprs)
-            - integral_r[method](limb_darkening_coefficients, rprs.new_zeros(1))) * torch.abs(ww2 - ww1)
-
-
-def integral_plus_core(method, limb_darkening_coefficients, rprs, z, ww1, ww2, precision=3):
+def _integral_plus_core(method, limb_darkening_coefficients, rprs, z, ww1, ww2, precision=3):
     if len(z) == 0:
         return z
 
@@ -229,14 +392,14 @@ def integral_plus_core(method, limb_darkening_coefficients, rprs, z, ww1, ww2, p
     r1 = torch.min(rr1, rr2)
     w2 = torch.max(ww1, ww2)
     r2 = torch.max(rr1, rr2)
-    parta = integral_r[method](limb_darkening_coefficients, rprs.new_zeros(1)) * (w1 - w2)
-    partb = integral_r[method](limb_darkening_coefficients, r1) * w2
-    partc = integral_r[method](limb_darkening_coefficients, r2) * (-w1)
-    partd = integral_r_f[method](limb_darkening_coefficients, rprs, z, r1, r2, precision=precision)
+    parta = _integral_r[method](limb_darkening_coefficients, rprs.new_zeros(1)) * (w1 - w2)
+    partb = _integral_r[method](limb_darkening_coefficients, r1) * w2
+    partc = _integral_r[method](limb_darkening_coefficients, r2) * (-w1)
+    partd = _integral_r_f[method](limb_darkening_coefficients, rprs, z, r1, r2, precision=precision)
     return parta + partb + partc + partd
 
 
-def integral_minus_core(method, limb_darkening_coefficients, rprs, z, ww1, ww2, precision=3):
+def _integral_minus_core(method, limb_darkening_coefficients, rprs, z, ww1, ww2, precision=3):
     if len(z) == 0:
         return z
     rr1 = z * torch.cos(ww1) - torch.sqrt(torch.clamp(rprs ** 2 - (z * torch.sin(ww1)) ** 2, EPS))
@@ -247,14 +410,14 @@ def integral_minus_core(method, limb_darkening_coefficients, rprs, z, ww1, ww2, 
     r1 = torch.min(rr1, rr2)
     w2 = torch.max(ww1, ww2)
     r2 = torch.max(rr1, rr2)
-    parta = integral_r[method](limb_darkening_coefficients, rprs.new_zeros(1)) * (w1 - w2)
-    partb = integral_r[method](limb_darkening_coefficients, r1) * (-w1)
-    partc = integral_r[method](limb_darkening_coefficients, r2) * w2
-    partd = integral_r_f[method](limb_darkening_coefficients, rprs, z, r1, r2, precision=precision)
+    parta = _integral_r[method](limb_darkening_coefficients, rprs.new_zeros(1)) * (w1 - w2)
+    partb = _integral_r[method](limb_darkening_coefficients, r1) * (-w1)
+    partc = _integral_r[method](limb_darkening_coefficients, r2) * w2
+    partd = _integral_r_f[method](limb_darkening_coefficients, rprs, z, r1, r2, precision=precision)
     return parta + partb + partc - partd
 
 
-def gauss_numerical_integration(f, x1, x2, precision, *f_args):
+def _gauss_numerical_integration(f, x1, x2, precision, *f_args):
     x1, x2 = (x2 - x1) / 2, (x2 + x1) / 2
 
     return x1 * torch.sum(gauss_table[precision][0][:, None].to(device=x1.device) *
@@ -262,7 +425,7 @@ def gauss_numerical_integration(f, x1, x2, precision, *f_args):
                             *f_args), 0)  # TODO: maybe better to avoid conversion?
 
 
-def transit_flux_drop(method, limb_darkening_coefficients, rp_over_rs, z_over_rs, precision=3, n_pars=None):
+def _transit_flux_drop(method, limb_darkening_coefficients, rp_over_rs, z_over_rs, precision=3, n_pars=None):
     """
 
     :param method: one of ('linear', 'sqrt', 'quad', 'claret')
@@ -319,7 +482,7 @@ def transit_flux_drop(method, limb_darkening_coefficients, rp_over_rs, z_over_rs
     indplus = plus_case.nonzero(as_tuple=False)
     flex_ind = lambda x, ind: x[ind] if len(x) > 1 else x
     if len(indplus):
-        plusflux[indplus[:, 0], indplus[:, 1]] = integral_plus_core(method,
+        plusflux[indplus[:, 0], indplus[:, 1]] = _integral_plus_core(method,
                                                                     flex_ind(limb_darkening_coefficients,
                                                                              indplus[:, 0]),
                                                                     flex_ind(rp_over_rs, indplus[:, 0])[:, 0],
@@ -329,14 +492,14 @@ def transit_flux_drop(method, limb_darkening_coefficients, rp_over_rs, z_over_rs
 
     ind0 = case0.nonzero(as_tuple=False)
     if len(ind0):
-        plusflux[ind0[:, 0], ind0[:, 1]] = integral_centred(method,
+        plusflux[ind0[:, 0], ind0[:, 1]] = _integral_centred(method,
                                                             flex_ind(limb_darkening_coefficients, ind0[:, 0]),
                                                             flex_ind(rp_over_rs, ind0[:, 0])[:, 0],
                                                             rp_over_rs.new_zeros(1), PI)
 
     indb = caseb.nonzero(as_tuple=False)
     if len(indb):
-        plusflux[indb[:, 0], indb[:, 1]] = integral_centred(method,
+        plusflux[indb[:, 0], indb[:, 1]] = _integral_centred(method,
                                                             flex_ind(limb_darkening_coefficients, indb[:, 0]),
                                                             rp_over_rs.new_ones(1),
                                                             rp_over_rs.new_zeros(1), PI)
@@ -345,7 +508,7 @@ def transit_flux_drop(method, limb_darkening_coefficients, rp_over_rs, z_over_rs
 
     minsflux = z_over_rs.new_zeros(n_pars, n_pts)
     indmins = minus_case.nonzero(as_tuple=False)
-    minsflux[indmins[:, 0], indmins[:, 1]] = integral_minus_core(method,
+    minsflux[indmins[:, 0], indmins[:, 1]] = _integral_minus_core(method,
                                                                  flex_ind(limb_darkening_coefficients, indmins[:, 0]),
                                                                  flex_ind(rp_over_rs, indmins[:, 0])[:, 0],
                                                                  z_over_rs[minus_case],
@@ -356,119 +519,32 @@ def transit_flux_drop(method, limb_darkening_coefficients, rp_over_rs, z_over_rs
     # flux_star
     starflux = z_over_rs.new_zeros(n_pars, n_pts)
     indstar = star_case.nonzero(as_tuple=False)
-    starflux[indstar[:, 0], indstar[:, 1]] = integral_centred(method,
+    starflux[indstar[:, 0], indstar[:, 1]] = _integral_centred(method,
                                                               flex_ind(limb_darkening_coefficients, indstar[:, 0]),
                                                               rp_over_rs.new_ones(1),
                                                               z_over_rs.new_zeros(1),
                                                               ph[star_case])
 
     # flux_total
-    total_flux = integral_centred(method, limb_darkening_coefficients, rp_over_rs.new_ones(1),
+    total_flux = _integral_centred(method, limb_darkening_coefficients, rp_over_rs.new_ones(1),
                                   rp_over_rs.new_zeros(n_pars), 2. * PI)[:, None]
     return 1 - (2. / total_flux) * (plusflux + starflux - minsflux)
 
 
-def transit(method:str, limb_darkening_coefficients:Tensor, rp_over_rs:Tensor, period:Tensor, sma_over_rs:Tensor, eccentricity:Tensor, inclination:Tensor, periastron:Tensor,
-            mid_time:Tensor, time_array:Tensor, precision=3, n_pars=None, dtype=torch.float64):
-    """Compute the light curve of a primary transit event.
-    
-    The function computes the light curve of a primary transit event for N different sets of
-         parameters and T time steps.
+# dictionaries containing the different methods,
+# if you define a new method, include the functions in the dictionary as well
 
-    Args:
-        method (str): limb-darkening law (available methods: 'claret', 'quad', 'sqrt' or 'linear')
-        limb_darkening_coefficients (Tensor): A 2D tensor of shape (N, M) where 'M' is the number of limb darkening coefficients. 
-            Each row represents a different set of limb darkening coefficients.
-        rp_over_rs (Tensor): (1,1) or (N, 1) shape tensor of Rp/Rs values - unitless
-        period (Tensor): (1,1) or (N, 1) shape tensor of period values - unit = days
-        sma_over_rs (Tensor): (1,1) or (N, 1) shape tensor of semi-major-axis values - unitless
-        eccentricity (Tensor): (1,1) or (N, 1) shape tensor of eccentricity values - unitless
-        inclination (Tensor): (1,1) or (N, 1) shape tensor of inclination values - unit = degrees
-        periastron (Tensor): (1,1) or (N, 1) shape tensor of periastron values - unit = degrees
-        mid_time (Tensor): (1,1) or (N, 1) shape tensor of mid-transit time values - unit = days
-        time_array (Tensor): Tensor of time values with shape  (1, T) or (N, T) - unit = days
-        precision (int, optional):integer between 1 and 6. Defaults to 3.
-        n_pars (int, optional): integer specifying the batch size to resolve ambiguous cases
-        dtype (dtype, optional): _description_. Defaults to torch.float64.
+_integral_r = {
+    'claret': _integral_r_claret,
+    'linear': _integral_r_linear,
+    'quad': _integral_r_quad,
+    'sqrt': _integral_r_sqrt
+}
 
-    Returns:
-        light_curve (Tensor): Tensor of shape (N, T) of stellar flux for the provided time and transit parameters.
-    """
+_integral_r_f = {
+    'claret': _integral_r_f_claret,
+    'linear': _integral_r_f_linear,
+    'quad': _integral_r_f_quad,
+    'sqrt': _integral_r_f_sqrt_torch,
+}
 
-    x, y, z = exoplanet_orbit(period, sma_over_rs, eccentricity, inclination, periastron, mid_time, time_array,
-                              n_pars=n_pars, dtype=dtype)
-    projected_distance = torch.where(x < 0., torch.ones_like(x, device=x.device, dtype=dtype) * MAX_RATIO_RADII,
-                                     torch.sqrt(y ** 2 + z ** 2))
-
-    return transit_flux_drop(method, limb_darkening_coefficients, rp_over_rs, projected_distance, precision=precision,
-                             n_pars=n_pars)
-
-
-def eclipse(fp_over_fs:Tensor, rp_over_rs:Tensor, period:Tensor, sma_over_rs:Tensor, eccentricity:Tensor, inclination:Tensor, periastron:Tensor, mid_time:Tensor, time_array:Tensor,
-            precision:int=3, n_pars:int=None, dtype=torch.float64):
-    """
-    Compute the flux increase during a secondary eclipse event.
-
-    The function computes the light curve of a secondary eclipse event for N different sets of
-    parameters and T time steps. 
-    Attention, the mid_time parameter corresponds to the primary transit. You can use 'eclipse_centered' function to
-    compute the light curve with the mid time properly set for the secondary eclipse.
-
-    Args:
-        fp_over_fs (Tensor): (1,1) or (N, 1) shape tensor of Fp/Fs values - unitless
-        rp_over_rs (Tensor): (1,1) or (N, 1) shape tensor of Rp/Rs values - unitless
-        period (Tensor): (1,1) or (N, 1) shape tensor of period values - unit = days
-        sma_over_rs (Tensor): (1,1) or (N, 1) shape tensor of semi-major-axis values - unitless
-        eccentricity (Tensor): (1,1) or (N, 1) shape tensor of eccentricity values - unitless
-        inclination (Tensor): (1,1) or (N, 1) shape tensor of inclination values - unit = degrees
-        periastron (Tensor): (1,1) or (N, 1) shape tensor of periastron values - unit = degrees
-        mid_time (Tensor): (1,1) or (N, 1) shape tensor of mid-transit time values - unit = days
-        time_array (Tensor): Tensor of time values with shape  (1, T) or (N, T) - unit = days
-        precision (int, optional): integer between 1 and 6. Defaults to 3.
-        n_pars (int, optional): integer specifying the batch size to resolve ambiguous cases
-        dtype (dtype, optional): _description_. Defaults to torch.float64.
-
-    Returns:
-        light_curve (Tensor): Tensor of shape (N, T) of stellar flux for the provided time and eclipse parameters.
-    """
-    x, y, z = exoplanet_orbit(period, - sma_over_rs / rp_over_rs, eccentricity, inclination, periastron,
-                              mid_time, time_array, n_pars=n_pars, dtype=dtype)
-    projected_distance = torch.where(x < 0, torch.ones_like(x, dtype=dtype, device=x.device) * MAX_RATIO_RADII,
-                                     torch.sqrt(y ** 2 + z ** 2))
-    n_pars = max(n_pars, projected_distance.shape[0],
-                 fp_over_fs.shape[0] if isinstance(fp_over_fs, torch.Tensor) else 1)
-
-    return (1. + fp_over_fs * transit_flux_drop('linear', time_array.new_zeros(n_pars, 1), 1. / rp_over_rs,
-                                                projected_distance, precision=precision,
-                                                n_pars=n_pars)) / (1. + fp_over_fs)
-
-
-def eclipse_centered(fp_over_fs:Tensor, rp_over_rs:Tensor, period:Tensor, sma_over_rs:Tensor, eccentricity:Tensor, inclination:Tensor, periastron:Tensor, mid_time:Tensor, time_array:Tensor,
-            precision:int=3, n_pars:int=None, dtype=torch.float64):
-    """
-    Compute the flux increase during a secondary transit event.
-
-    The function computes the light curve of a secondary eclipse event for N different sets of
-    parameters and T time steps. 
-    Attention, the mid_time parameter corresponds to the secondary transit. You can use 'eclipse_centered' function to
-    compute the light curve with the mid time set for the primary transit.
-
-    Args:
-        fp_over_fs (Tensor): (1,1) or (N, 1) shape tensor of Fp/Fs values - unitless
-        rp_over_rs (Tensor): (1,1) or (N, 1) shape tensor of Rp/Rs values - unitless
-        period (Tensor): (1,1) or (N, 1) shape tensor of period values - unit = days
-        sma_over_rs (Tensor): (1,1) or (N, 1) shape tensor of semi-major-axis values - unitless
-        eccentricity (Tensor): (1,1) or (N, 1) shape tensor of eccentricity values - unitless
-        inclination (Tensor): (1,1) or (N, 1) shape tensor of inclination values - unit = degrees
-        periastron (Tensor): (1,1) or (N, 1) shape tensor of periastron values - unit = degrees
-        mid_time (Tensor): (1,1) or (N, 1) shape tensor of mid-transit time values - unit = days
-        time_array (Tensor): Tensor of time values with shape  (1, T) or (N, T) - unit = days
-        precision (int, optional): integer between 1 and 6. Defaults to 3.
-        n_pars (int, optional): integer specifying the batch size to resolve ambiguous cases
-        dtype (dtype, optional): _description_. Defaults to torch.float64.
-
-    Returns:
-        light_curve (Tensor): Tensor of shape (N, T) of stellar flux for the provided time and eclipse parameters.
-    """
-    return eclipse(fp_over_fs, rp_over_rs, period, -sma_over_rs, eccentricity, inclination, periastron + 180.,
-                   mid_time, time_array, precision, n_pars, dtype)

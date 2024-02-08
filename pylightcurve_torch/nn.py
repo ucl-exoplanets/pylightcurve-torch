@@ -4,10 +4,11 @@ import torch
 from torch import nn
 
 from ._constants import MAX_RATIO_RADII, PLC_ALIASES
-from .functional import exoplanet_orbit, transit_duration, transit_flux_drop
+from .functional import exoplanet_orbit, transit_duration, _transit_flux_drop
 
 
 class TransitModule(nn.Module):
+    """Pytorch module to compute primary and secondary transits of exoplanets."""
     _parnames = ['method', 'P', 'i', 'e', 'a', 'rp', 'fp', 't0', 'w', 'ldc', 'time']
     _authorised_parnames = _parnames + list(PLC_ALIASES.keys())
     _methods_dim = {'linear': 1, 'sqrt': 2, 'quad': 2, 'claret': 4}
@@ -452,7 +453,7 @@ class TransitModule(nn.Module):
         proj_dist = self.get_proj_dist(**kwargs, orbit_type='primary')
         d, batch_size = self.get_input_params(**kwargs, function='drop_p')
         batch_size = max(batch_size, proj_dist.shape[0])
-        out = transit_flux_drop(d['method'], d['ldc'], d['rp'], proj_dist,
+        out = _transit_flux_drop(d['method'], d['ldc'], d['rp'], proj_dist,
                                 precision=self.precision, n_pars=batch_size)
         if self.cache_flux and not runtime_mode:
             self.__drop_p = out
@@ -473,7 +474,7 @@ class TransitModule(nn.Module):
         proj_dist = self.get_proj_dist(
             **kwargs, orbit_type='secondary') / d['rp']
         batch_size = max(batch_size, proj_dist.shape[0])
-        out = transit_flux_drop('linear', torch.zeros(batch_size, 1, dtype=d['rp'].dtype, device=d['rp'].device),
+        out = _transit_flux_drop('linear', torch.zeros(batch_size, 1, dtype=d['rp'].dtype, device=d['rp'].device),
                                 1 / d['rp'], proj_dist, precision=self.precision, n_pars=batch_size)
         out = (1. + d['fp'] * out) / (1. + d['fp'])
         if self.cache_flux and not runtime_mode:
