@@ -27,6 +27,7 @@ SOFTWARE.
 
 """
 import torch
+from torch import Tensor
 
 from ._constants import gauss_table, PI, EPS, MAX_RATIO_RADII, MAX_ITERATIONS, ORBIT_PRECISION
 
@@ -367,8 +368,33 @@ def transit_flux_drop(method, limb_darkening_coefficients, rp_over_rs, z_over_rs
     return 1 - (2. / total_flux) * (plusflux + starflux - minsflux)
 
 
-def transit(method, limb_darkening_coefficients, rp_over_rs, period, sma_over_rs, eccentricity, inclination, periastron,
-            mid_time, time_array, precision=3, n_pars=None, dtype=torch.float64):
+def transit(method:str, limb_darkening_coefficients:Tensor, rp_over_rs:Tensor, period:Tensor, sma_over_rs:Tensor, eccentricity:Tensor, inclination:Tensor, periastron:Tensor,
+            mid_time:Tensor, time_array:Tensor, precision=3, n_pars=None, dtype=torch.float64):
+    """Compute the light curve of a primary transit event.
+    
+    The function computes the light curve of a primary transit event for N different sets of
+         parameters and T time steps.
+
+    Args:
+        method (str): limb-darkening law (available methods: 'claret', 'quad', 'sqrt' or 'linear')
+        limb_darkening_coefficients (Tensor): A 2D tensor of shape (N, M) where 'M' is the number of limb darkening coefficients. 
+            Each row represents a different set of limb darkening coefficients.
+        rp_over_rs (Tensor): (1,1) or (N, 1) shape tensor of Rp/Rs values - unitless
+        period (Tensor): (1,1) or (N, 1) shape tensor of period values - unit = days
+        sma_over_rs (Tensor): (1,1) or (N, 1) shape tensor of semi-major-axis values - unitless
+        eccentricity (Tensor): (1,1) or (N, 1) shape tensor of eccentricity values - unitless
+        inclination (Tensor): (1,1) or (N, 1) shape tensor of inclination values - unit = degrees
+        periastron (Tensor): (1,1) or (N, 1) shape tensor of periastron values - unit = degrees
+        mid_time (Tensor): (1,1) or (N, 1) shape tensor of mid-transit time values - unit = days
+        time_array (Tensor): Tensor of time values with shape  (1, T) or (N, T) - unit = days
+        precision (int, optional):integer between 1 and 6. Defaults to 3.
+        n_pars (int, optional): integer specifying the batch size to resolve ambiguous cases
+        dtype (dtype, optional): _description_. Defaults to torch.float64.
+
+    Returns:
+        light_curve (Tensor): Tensor of shape (N, T) of stellar flux for the provided time and transit parameters.
+    """
+
     x, y, z = exoplanet_orbit(period, sma_over_rs, eccentricity, inclination, periastron, mid_time, time_array,
                               n_pars=n_pars, dtype=dtype)
     projected_distance = torch.where(x < 0., torch.ones_like(x, device=x.device, dtype=dtype) * MAX_RATIO_RADII,
@@ -378,8 +404,33 @@ def transit(method, limb_darkening_coefficients, rp_over_rs, period, sma_over_rs
                              n_pars=n_pars)
 
 
-def eclipse(fp_over_fs, rp_over_rs, period, sma_over_rs, eccentricity, inclination, periastron, mid_time, time_array,
-            precision=3, n_pars=None, dtype=torch.float64):
+def eclipse(fp_over_fs:Tensor, rp_over_rs:Tensor, period:Tensor, sma_over_rs:Tensor, eccentricity:Tensor, inclination:Tensor, periastron:Tensor, mid_time:Tensor, time_array:Tensor,
+            precision:int=3, n_pars:int=None, dtype=torch.float64):
+    """
+    Compute the flux increase during a secondary eclipse event.
+
+    The function computes the light curve of a secondary eclipse event for N different sets of
+    parameters and T time steps. 
+    Attention, the mid_time parameter corresponds to the primary transit. You can use 'eclipse_centered' function to
+    compute the light curve with the mid time properly set for the secondary eclipse.
+
+    Args:
+        fp_over_fs (Tensor): (1,1) or (N, 1) shape tensor of Fp/Fs values - unitless
+        rp_over_rs (Tensor): (1,1) or (N, 1) shape tensor of Rp/Rs values - unitless
+        period (Tensor): (1,1) or (N, 1) shape tensor of period values - unit = days
+        sma_over_rs (Tensor): (1,1) or (N, 1) shape tensor of semi-major-axis values - unitless
+        eccentricity (Tensor): (1,1) or (N, 1) shape tensor of eccentricity values - unitless
+        inclination (Tensor): (1,1) or (N, 1) shape tensor of inclination values - unit = degrees
+        periastron (Tensor): (1,1) or (N, 1) shape tensor of periastron values - unit = degrees
+        mid_time (Tensor): (1,1) or (N, 1) shape tensor of mid-transit time values - unit = days
+        time_array (Tensor): Tensor of time values with shape  (1, T) or (N, T) - unit = days
+        precision (int, optional): integer between 1 and 6. Defaults to 3.
+        n_pars (int, optional): integer specifying the batch size to resolve ambiguous cases
+        dtype (dtype, optional): _description_. Defaults to torch.float64.
+
+    Returns:
+        light_curve (Tensor): Tensor of shape (N, T) of stellar flux for the provided time and eclipse parameters.
+    """
     x, y, z = exoplanet_orbit(period, - sma_over_rs / rp_over_rs, eccentricity, inclination, periastron,
                               mid_time, time_array, n_pars=n_pars, dtype=dtype)
     projected_distance = torch.where(x < 0, torch.ones_like(x, dtype=dtype, device=x.device) * MAX_RATIO_RADII,
@@ -392,7 +443,32 @@ def eclipse(fp_over_fs, rp_over_rs, period, sma_over_rs, eccentricity, inclinati
                                                 n_pars=n_pars)) / (1. + fp_over_fs)
 
 
-def eclipse_centered(fp_over_fs, rp_over_rs, period, sma_over_rs, eccentricity, inclination, periastron, mid_time,
-                     time_array, precision=3):
+def eclipse_centered(fp_over_fs:Tensor, rp_over_rs:Tensor, period:Tensor, sma_over_rs:Tensor, eccentricity:Tensor, inclination:Tensor, periastron:Tensor, mid_time:Tensor, time_array:Tensor,
+            precision:int=3, n_pars:int=None, dtype=torch.float64):
+    """
+    Compute the flux increase during a secondary transit event.
+
+    The function computes the light curve of a secondary eclipse event for N different sets of
+    parameters and T time steps. 
+    Attention, the mid_time parameter corresponds to the secondary transit. You can use 'eclipse_centered' function to
+    compute the light curve with the mid time set for the primary transit.
+
+    Args:
+        fp_over_fs (Tensor): (1,1) or (N, 1) shape tensor of Fp/Fs values - unitless
+        rp_over_rs (Tensor): (1,1) or (N, 1) shape tensor of Rp/Rs values - unitless
+        period (Tensor): (1,1) or (N, 1) shape tensor of period values - unit = days
+        sma_over_rs (Tensor): (1,1) or (N, 1) shape tensor of semi-major-axis values - unitless
+        eccentricity (Tensor): (1,1) or (N, 1) shape tensor of eccentricity values - unitless
+        inclination (Tensor): (1,1) or (N, 1) shape tensor of inclination values - unit = degrees
+        periastron (Tensor): (1,1) or (N, 1) shape tensor of periastron values - unit = degrees
+        mid_time (Tensor): (1,1) or (N, 1) shape tensor of mid-transit time values - unit = days
+        time_array (Tensor): Tensor of time values with shape  (1, T) or (N, T) - unit = days
+        precision (int, optional): integer between 1 and 6. Defaults to 3.
+        n_pars (int, optional): integer specifying the batch size to resolve ambiguous cases
+        dtype (dtype, optional): _description_. Defaults to torch.float64.
+
+    Returns:
+        light_curve (Tensor): Tensor of shape (N, T) of stellar flux for the provided time and eclipse parameters.
+    """
     return eclipse(fp_over_fs, rp_over_rs, period, -sma_over_rs, eccentricity, inclination, periastron + 180.,
-                   mid_time, time_array, precision)
+                   mid_time, time_array, precision, n_pars, dtype)
