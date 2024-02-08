@@ -1,15 +1,31 @@
+"""This module defines various constants and lookup tables used throughout the
+package.
+
+It includes mathematical constants like PI, parameters for the transit
+calculations like MAX_RATIO_RADII and EPS, and lookup tables for
+Gaussian quadrature points and weights (gauss0, gauss10, gauss20,
+gauss30).
+
+This module is intended for internal use by the package. The constants
+and lookup tables defined here are used by various functions and classes
+within the package to perform their calculations.
+"""
+
+
 from collections import OrderedDict
 
 import torch
+
 
 PI = 3.1415926535897932
 MAX_RATIO_RADII = 1.e12
 EPS = 1.e-16
 MAX_ITERATIONS = 50_000
 ORBIT_PRECISION = 1e-7
-PLC_ALIASES = OrderedDict({'period': 'P', 'inclination': 'i', 'eccentricity': 'e', 'sma_over_rs': 'a',
-                           'rp_over_rs': 'rp', 'fp_over_fs': 'fp', 'mid_time': 't0', 'periastron': 'w',
-                           'limb_darkening_coefficients': 'ldc'})
+PLC_ALIASES = OrderedDict({'period': 'P', 'inclination': 'i', 'eccentricity': 'e',
+                           'sma_over_rs': 'a', 'rp_over_rs': 'rp', 'fp_over_fs': 'fp',
+                           'mid_time': 't0', 'periastron': 'w', 'limb_darkening_coefficients':
+                               'ldc'})
 
 gauss0 = torch.tensor([
     [1.0000000000000000, -0.5773502691896257],
@@ -244,7 +260,7 @@ gauss60 = torch.tensor([
     [0.0020268119688738, 0.9992101232274361],
 ])
 
-gauss_table = [torch.transpose(gauss0, 0, 1), torch.transpose(gauss10, 0, 1), torch.transpose(gauss20, 0, 1),
-               torch.transpose(gauss30, 0, 1), torch.transpose(gauss40, 0, 1), torch.transpose(gauss50, 0, 1),
+gauss_table = [torch.transpose(gauss0, 0, 1), torch.transpose(gauss10, 0, 1),
+               torch.transpose(gauss20, 0, 1), torch.transpose(gauss30, 0, 1),
+               torch.transpose(gauss40, 0, 1), torch.transpose(gauss50, 0, 1),
                torch.transpose(gauss60, 0, 1)]
-
